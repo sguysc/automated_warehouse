@@ -1,0 +1,58 @@
+Examples for:
+
+Mark M. Tobenkin and Ian R. Manchester and Russ Tedrake
+"Invariant Funnels around Trajectories using Sum-of-Squares Programming"
+http://arxiv.org/abs/1010.3013
+
+The following contains to examples of certificates of finite-time invariance
+around trajectories of nonlinear dynamical systems (with polynomial vector
+fields).
+
+It requires:
+   MATLAB
+   SeDuMi (http://sedumi.ie.lehigh.edu/)
+   spot   (http://web.mit.edu/ameg/www/)
+
+The two examples are:
+    vanderpol_example.m
+    satellite_example.m
+
+The first is a two state system extending a basin-of-attraction estimate
+for an unactuated system.  It runs comparatively quickly.
+
+The second is a six state system computing a certificate around a feedback
+stabilized trajectory.
+
+The dynamics, trajectory of interest, and controller design (if applicable)
+are in:
+    vanderpol_example_setup.m
+    satellite_example_setup.m
+
+The following are useful parameters to modify when adapting the code:
+
+c         defined in *_example.m,  line 3:
+    The exponent of an initial guess for rho(t) 
+    See Lemma 4, page 2 of the arXiv paper.
+    Scales with length of trajectory.
+
+k         defined in lagrange_multipliers.m,  line 31:
+    Subamples verified, must be >= 2. Smaller is faster but
+    more approximate.
+
+Lxmonom   defined in tv_poly_rho_L_samp.m, line 4:
+    Degree of monomials for Lagrange multipliers (mu).
+    Change: 0:deg(Vdot,x)-deg(V,x) to 0:deg(Vdot,x)-deg(V,x)+m
+    for some integer m.  
+    Higher degree increases complexity, but may certify larger
+    regions.
+
+l         defined in improve_rho.m, line 5:
+    Degree of the pieces of rho(t), default: piecewise linear.
+
+The file lagrange_multiplier.m can be edited to enable parallel
+computation. The commented out code should replace the final for loop
+and has been tested with:
+    MATLAB Version 7.10.0.499 (R2010a) 64-bit (maci64).
+
+
+
