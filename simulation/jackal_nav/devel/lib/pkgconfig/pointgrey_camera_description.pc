@@ -1,0 +1,8 @@
+prefix=/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/devel
+
+Name: pointgrey_camera_description
+Description: Description of pointgrey_camera_description
+Version: 0.13.4
+Cflags: 
+Libs: -L/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/devel/lib 
+Requires: 

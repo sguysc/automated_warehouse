@@ -1,0 +1,2 @@
+set(image_exposure_msgs_MESSAGE_FILES "/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/src/pointgrey_camera_driver/image_exposure_msgs/msg/ExposureSequence.msg;/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/src/pointgrey_camera_driver/image_exposure_msgs/msg/ImageExposureStatistics.msg;/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/src/pointgrey_camera_driver/image_exposure_msgs/msg/SequenceExposureStatistics.msg")
+set(image_exposure_msgs_SERVICE_FILES "")

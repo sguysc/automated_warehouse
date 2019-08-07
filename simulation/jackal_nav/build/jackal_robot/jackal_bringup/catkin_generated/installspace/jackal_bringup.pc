@@ -1,0 +1,8 @@
+prefix=/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/install
+
+Name: jackal_bringup
+Description: Description of jackal_bringup
+Version: 0.5.0
+Cflags: 
+Libs: -L/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/install/lib 
+Requires: 

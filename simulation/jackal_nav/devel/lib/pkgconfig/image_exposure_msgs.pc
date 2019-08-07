@@ -1,0 +1,8 @@
+prefix=/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/devel
+
+Name: image_exposure_msgs
+Description: Description of image_exposure_msgs
+Version: 0.13.4
+Cflags: -I/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/devel/include
+Libs: -L/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/devel/lib 
+Requires: message_runtime statistics_msgs std_msgs

@@ -1,0 +1,2 @@
+LMS1xx:jackal/jackal_control:jackal/jackal_description:jackal/jackal_msgs:jackal/jackal_navigation:jackal/jackal_tutorials:jackal_robot/jackal_base:jackal_robot/jackal_bringup:jackal_robot/jackal_robot:jackal_simulator/jackal_gazebo:jackal_simulator/jackal_simulator
+-DCATKIN_DEVEL_PREFIX=/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/devel -DCMAKE_INSTALL_PREFIX=/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/install -G Unix Makefiles

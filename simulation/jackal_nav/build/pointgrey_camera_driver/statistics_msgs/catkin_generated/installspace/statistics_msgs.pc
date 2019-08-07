@@ -1,0 +1,8 @@
+prefix=/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/install
+
+Name: statistics_msgs
+Description: Description of statistics_msgs
+Version: 0.13.4
+Cflags: -I/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/install/include
+Libs: -L/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/install/lib 
+Requires: message_runtime

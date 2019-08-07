@@ -1,0 +1,8 @@
+prefix=/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/install
+
+Name: jackal_gazebo
+Description: Description of jackal_gazebo
+Version: 0.3.0
+Cflags: 
+Libs: -L/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/install/lib 
+Requires: 

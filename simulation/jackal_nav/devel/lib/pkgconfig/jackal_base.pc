@@ -1,0 +1,8 @@
+prefix=/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/devel
+
+Name: jackal_base
+Description: Description of jackal_base
+Version: 0.5.0
+Cflags: 
+Libs: -L/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/devel/lib 
+Requires: 
