@@ -13,17 +13,17 @@ def DubinsPlant_(T):
 			LeafSystem_[T].__init__(self, converter)
 			# one inputs 
 			# self.DeclareInputPort("u", PortDataType.kVectorValued, 1)
-			self.DeclareVectorInputPort("u", BasicVector_[T](1))
+			self.DeclareVectorInputPort("u", BasicVector_[T](2))
 			# three outputs (full state)
-			self.DeclareVectorOutputPort("x", BasicVector_[T](3),
+			self.DeclareVectorOutputPort("x", BasicVector_[T](4),
 										 self.CopyStateOut)
 			# three positions, no velocities
-			self.DeclareContinuousState(3, 0, 0)
+			self.DeclareContinuousState(4, 0, 0)
 
 			# parameters 
 			self.v = 1.0
 			self.umax =  5.0
-			self.omegamax =  10.0
+			self.omegamax =  5.0
 
 		def _construct_copy(self, other, converter=None):
 			Impl._construct(self, converter=converter)
@@ -36,31 +36,33 @@ def DubinsPlant_(T):
 		def DoCalcTimeDerivatives(self, context, derivatives):
 			x = context.get_continuous_state_vector().CopyToVector()
 			u = self.EvalVectorInput(context, 0).CopyToVector()
-			theta = x[2]
+			theta = x[3]
+			v = x[2]
 			
-			qdot = np.array([self.v*np.cos(theta),  self.v*np.sin(theta), u[0]])
+			qdot = np.array([v*np.cos(theta),  v*np.sin(theta), u[0], u[1]])#.reshape(3,1) #u[0]
 			derivatives.get_mutable_vector().SetFromVector(qdot)
 		
 		def runDircol(self,x0,xf,tf0):
-			N = 21 #np.int(tf0 * 10) # "10Hz" samples per second
+			N = np.int(tf0 * 10) # "10Hz" samples per second
 
 			context = self.CreateDefaultContext()
 			dircol  = DirectCollocation(self, context, num_time_samples=N,
-							   minimum_timestep=0.05, maximum_timestep=1.0)
+							   minimum_timestep=0.1, maximum_timestep=1.0)
 			u = dircol.input()
 			
 			dircol.AddEqualTimeIntervalsConstraints()
 			
-			dircol.AddConstraintToAllKnotPoints(u[0] <=  0.5*self.omegamax)
-			dircol.AddConstraintToAllKnotPoints(u[0] >= -0.5*self.omegamax)
+			dircol.AddConstraintToAllKnotPoints(u[0] <=  .5*self.umax)
+			dircol.AddConstraintToAllKnotPoints(u[0] >= -.5*self.umax)
+			dircol.AddConstraintToAllKnotPoints(u[1] <=  .5*self.omegamax)
+			dircol.AddConstraintToAllKnotPoints(u[1] >= -.5*self.omegamax)
 			
 			eps = 0.0
 			dircol.AddBoundingBoxConstraint(x0, x0, dircol.initial_state())
-			dircol.AddBoundingBoxConstraint(xf-np.array([eps, eps, eps]), xf+np.array([eps, eps, eps]), dircol.final_state())
+			dircol.AddBoundingBoxConstraint(xf-np.array([eps, eps, eps, eps]), xf+np.array([eps, eps, eps, eps]), dircol.final_state())
 
-			R = 1.0  # Cost on input "effort".
-			#dircol.AddRunningCost( u.transpose().dot(R.dot(u)) ) 
-			dircol.AddRunningCost(R*u[0]**2)
+			R = np.diag([10.0, 10.0])  # Cost on input "effort".
+			dircol.AddRunningCost( u.transpose().dot(R.dot(u)) ) #R*u[0]**2)
 
 			# Add a final cost equal to the total duration.
 			dircol.AddFinalCost(dircol.time())
@@ -83,7 +85,6 @@ def DubinsPlant_(T):
 		# not implemented correctly yets
 		def LQR(self, xtraj, utraj, Q, R, Qf):
 			tspan = utraj.get_segment_times()
-			dxtrajdt = xtraj.derivative(1)
 			
 			context = self.CreateDefaultContext()
 			nX = context.num_continuous_states()
@@ -99,8 +100,8 @@ def DubinsPlant_(T):
 			
 			times = xtraj.get_segment_times()
 			K = []
-			S = []
 			
+			import pdb; pdb.set_trace()
 			for t in times:
 				# option 1
 				x0 = xtraj.value(t).transpose()[0]
@@ -108,19 +109,10 @@ def DubinsPlant_(T):
 				
 				sym_context.SetContinuousState(x0+x)
 				sym_context.FixInputPort(0, u0+ucon )
-				# xdot=f(x,u)==>xhdot=f(xh+x0,uh+u0)-x0dot
-				f = sym_system.EvalTimeDerivatives(sym_context).CopyToVector() # - dxtrajdt.value(t).transpose()
+				f = sym_system.EvalTimeDerivatives(sym_context).CopyToVector()
 				A = Evaluate(Jacobian(f, x), dict(zip(x, x0)))
 				B = Evaluate(Jacobian(f, ucon), dict(zip(ucon, u0)))
-				import pdb; pdb.set_trace()
-				s, k = LinearQuadraticRegulator(A, B, Q, R)
-				
-				if(len(K) == 0):
-					K = np.ravel(k).reshape(nX*nX,1) 
-					S = np.ravel(s).reshape(nX,1) 
-				else:
-					K = np.hstack( (K, np.ravel(k).reshape(nX*nX,1)) )
-					S = np.hstack( (S, np.ravel(s).reshape(nX,1)) )
+				K.append(LinearQuadraticRegulator(A, B, Q, R)) 
 				
 				# option 2
 				#context.SetContinuousState(xtraj.value(t) )
@@ -134,11 +126,10 @@ def DubinsPlant_(T):
 			
 			Kpp = PiecewisePolynomial.FirstOrderHold(times, K)
 			
-			
 			return Kpp
 		
 		# not implemented correctly yet
-		#"""
+		"""
 		def findLyapunovFunctionSOS(self, x0, deg_V, deg_L):
 			prog = MathematicalProgram()
 			# Declare the "indeterminates", x. These are the variables which define the polynomials
@@ -162,7 +153,7 @@ def DubinsPlant_(T):
 			result = Solve(prog)
 			Vsol = Polynomial(result.GetSolution(V))
 			return Vsol
-		#"""
+		"""
 		
 		def EvalTimeDerivatives(self, context):
 			#import pdb; pdb.set_trace()
@@ -173,9 +164,10 @@ def DubinsPlant_(T):
 			u = self.GetInputPort('u').EvalBasicVector(context).CopyToVector()
 			
 			# omega = [0.0]
-			theta = x[2]
+			v = x[2]
+			theta = x[3]
 			
-			qdot = np.array([self.v*np.cos(theta),  self.v*np.sin(theta), u[0]]) #
+			qdot = np.array([v*np.cos(theta),  v*np.sin(theta), u[0], u[1]])#.reshape(3,1) #u[0]
 			# import pdb; pdb.set_trace()
 			y.SetFromVector(qdot)
 			return y
@@ -275,29 +267,22 @@ def DubinsPlant_(T):
 			return V/result.GetSolution(rho)
 
 
-		def RegionOfAttraction(self, context, xdotraj, V=None):
+		def RegionOfAttraction(self, context, V=None):
 			x0 = context.get_continuous_state_vector().CopyToVector()
-			if(xdotraj is None):
-				xdotraj = 0.0*x0
 
-			# Check that x0 is a "fixed point" (on the trajectory).
+			# Check that x0 is a fixed point.
 			xdot0 = self.EvalTimeDerivatives(context).CopyToVector()
-			assert np.allclose(xdot0, xdotraj), "context does not describe a fixed point."   #0*xdot0), 
-			
+			assert np.allclose(xdot0, 0*xdot0), "context does not describe a fixed point."
+
+			import pdb; pdb.set_trace()
 			sym_system = self.ToSymbolic()
 			sym_context = sym_system.CreateDefaultContext()
 
 			prog = MathematicalProgram()
 			x = prog.NewIndeterminates(sym_context.num_continuous_states(),'x')
-			
+
 			# Evaluate the dynamics (in relative coordinates)
 			sym_context.SetContinuousState(x0+x)
-			#import pdb; pdb.set_trace()
-			uinput = self.GetInputPort('u')
-			u0 = uinput.EvalBasicVector(context).CopyToVector()
-			nU = uinput.size()
-			ucon = prog.NewIndeterminates(nU,'u')
-			sym_context.FixInputPort(0, u0+ucon )
 			f = sym_system.EvalTimeDerivatives(sym_context).CopyToVector()
 
 			if V is None:
@@ -326,31 +311,32 @@ def DubinsPlant_(T):
 	
 def runFunnel():
 	print('running Funnel algorithm ...')
+	vconst = 2.0
+	umax = 10000.0
 	
     # Declare (Dubins car) model
 	plant = DubinsPlant_[float]() #None]  # Default instantiation
 		
 	# Trajectory optimization
-	x0 = (0.0, 0.0, math.pi/3.0)  #Initial state that trajectory should start from
-	xf = (0.0, 1.5, math.pi/2.0)  #Final desired state
-	tf0 = 1.0 # Guess for how long trajectory should take
+	x0 = (0.0, 0.0, 0.0, -math.pi/4.0)  #Initial state that trajectory should start from
+	xf = (1.5, 0.0, 0.0, -math.pi/4.0)  #Final desired state
+	tf0 = 5.0 # Guess for how long trajectory should take
 	utraj, xtraj = plant.runDircol(x0, xf, tf0)
 
 	# region of attraction:
-	context = plant.CreateDefaultContext()
-	context.SetContinuousState(xtraj.value(xtraj.end_time()))
-	context.FixInputPort(0, utraj.value(utraj.end_time()))
-	xdotraj = xtraj.derivative(1).value(xtraj.end_time())
-	V = plant.RegionOfAttraction(context, xdotraj.transpose())
+	#context = plant.CreateDefaultContext()
+	#context.SetContinuousState(xf)
+	#context.FixInputPort(0, [0.0, 0.0])
+	#V = plant.RegionOfAttraction(context)
 	
 	#print('V=')
 	#print(V)
 	
 	# Do tvlqr
-	Q  = 3.0*np.eye(len(x0))
-	R  = 1.0*np.eye(1)
+	Q = 3.0*np.eye(len(x0))
+	R = 1.0*np.eye(2)
 	Qf = 1.0*Q
-	K  = plant.LQR(xtraj, utraj, Q, R, Qf)  # c, V 
+	K = plant.LQR(xtraj, utraj, Q, R, Qf)  # c, V 
 	# poly = FirstOrderTaylorApproximation(feedback(p,c),xtraj,[],3)
 	# ts = xtraj.getBreaks()
 
@@ -375,13 +361,13 @@ def runFunnel():
 
 	# plotting stuff
 	fig, ax = plt.subplots(3)
-	fig.suptitle('Direct collocation trajectory optimization (%.2f,%.2f,%.2f)->(%.2f,%.2f,%.2f)' %\
-				 (x0[0],x0[1],x0[2],xf[0],xf[1],xf[2]))
+	fig.suptitle('Direct collocation trajectory optimization (%.2f,%.2f,%.2f,%.2f)->(%.2f,%.2f,%.2f,%.2f)' %\
+				 (x0[0],x0[1],x0[2],x0[3],xf[0],xf[1],xf[2],xf[3]))
 	ax[0].plot(xy_knots[0, :], xy_knots[1, :])
 	ax[0].set(xlabel='x [m]', ylabel='y [m]')
 	ax[0].grid(True)
 	ax[1].plot(times, u_values[0,:], 'green')
-	#ax[1].plot(times, u_values[1,:], 'red')
+	ax[1].plot(times, u_values[1,:], 'red')
 	ax[1].set(xlabel='t [sec]', ylabel='v [m/s] or omega [rad/sec]')
 	ax[1].grid(True)
 	#plot_sublevelset_expression(ax[2], V)

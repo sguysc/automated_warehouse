@@ -1,5 +1,5 @@
 satellite_example_setup;
-
+%%
 c = 3;
 rhot = exp(c*(taus-max(taus))/(max(taus)-min(taus)));
 rhopp = interp1(taus,rhot,'linear','pp');

@@ -19,8 +19,8 @@ function f = sim_p2f(p,x)
     sf = xf.s;
     s = x.s;
     
-    [idf,If]= sort(sf(:,3));
-    [idx,Ibx]= sort(s(:,3));
+    [idf,If]= sort(sf(:,end)); %GUY 3
+    [idx,Ibx]= sort(s(:,end)); %GUY 3
     % Test that xf \subset x
     i = 1; j = 1; %id = []; 
     Ib = [];
