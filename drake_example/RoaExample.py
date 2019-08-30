@@ -47,7 +47,9 @@ def FixedLyapunovSearchRho(prog, x, V, Vdot, multiplier_degree=None):
         slack = prog.NewContinuousVariables(1,'a')[0]
 
         Lambda = prog.NewSosPolynomial(Variables(x), multiplier_degree)[0].ToExpression()
-
+        print('V degree: %d' %(Polynomial(V).TotalDegree()))
+        print('Vdot degree: %d' %(Polynomial(Vdot).TotalDegree()))
+        print('SOS degree: %d' %(Polynomial(-Vdot + Lambda*(V - rho) - slack*V).TotalDegree()))
         prog.AddSosConstraint(-Vdot + Lambda*(V - rho) - slack*V)
         prog.AddCost(-slack)
 
@@ -169,6 +171,6 @@ context = vdp.CreateDefaultContext()
 context.SetContinuousState([0, 0])
 
 V = RegionOfAttraction(vdp, context)
-
+import pdb; pdb.set_trace()
 plot_sublevelset_expression(ax, V)
 plt.show()

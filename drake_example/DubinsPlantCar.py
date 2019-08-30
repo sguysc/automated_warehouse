@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import math
 
 from pydrake.all import (DirectCollocation, PiecewisePolynomial, BasicVector_, LeafSystem_, Solve, FirstOrderTaylorApproximation, LinearQuadraticRegulator, Linearize, Variables, MathematicalProgram, Evaluate, Jacobian, RealContinuousLyapunovEquation, Substitute)
-from pydrake.all import (plot_sublevelset_expression)
+from pydrake.all import (plot_sublevelset_quadratic)
 from pydrake.systems.scalar_conversion import TemplateSystem
 from pydrake import symbolic
 from pydrake.symbolic import Polynomial
@@ -11,6 +11,8 @@ from pydrake.solvers.scs import ScsSolver
 from pydrake.solvers.ipopt import IpoptSolver
 from pydrake.solvers.mosek import MosekSolver
 #from pydrake.solvers.csdp import CsdpSolver
+
+from scipy.integrate import solve_ivp
 
 @TemplateSystem.define("DubinsPlant_")
 def DubinsPlant_(T):
@@ -79,7 +81,7 @@ def DubinsPlant_(T):
 			dircol.SetInitialTrajectory(PiecewisePolynomial(), initial_x_trajectory)
 
 			result = Solve(dircol)
-			print('Running trajectory optimization: ')
+			print('******\nRunning trajectory optimization:')
 			print('w/ solver %s' %(result.get_solver_id().name()))
 			print(result.get_solution_result())
 			assert(result.is_success())
@@ -90,15 +92,91 @@ def DubinsPlant_(T):
 
 			return utraj,xtraj
 		
-		# not implemented correctly yets
-		def TVLQR(self, xtraj, utraj, Q, R, Qf):
-			tspan = utraj.get_segment_times()
-			dxtrajdt = xtraj.derivative(1)
-			
-			context = self.CreateDefaultContext()
+		# Solving Riccati equation in reverse
+		def Care(self, t, S, Q, Rinv, xtraj, utraj):
+			x0 = xtraj.value(t).transpose()[0]
+			u0 = utraj.value(t).transpose()[0]
 
+			A, B = self.PlantDerivatives(x0, u0)
+			S = S.reshape(A.shape)
+			Sdot = -(A.transpose().dot(S) + S.dot(A) - S.dot(B).dot(Rinv).dot(B.transpose()).dot(S) + Q)
+			return Sdot.ravel()
+		
+		def PlantDerivatives(self, x, u):
+			A = np.array([[0., 0., -u[1]*np.sin(x[2])], \
+         	     [0., 0.,  u[1]*np.cos(x[2])], \
+         		 [0., 0., 0.]])
+			B = np.array([[0., np.cos(x[2])], \
+         		 [0., np.sin(x[2])], \
+         		 [u[1]*(1+np.tan(u[0])**2)/self.L, np.tan(u[0])/self.L ]])
+			return A, B
+		#
+		def TVLQR2(self, xtraj, utraj, Q, R, Qf):
+			context = self.CreateDefaultContext()
 			sym_system = self.ToSymbolic()
 			sym_context = sym_system.CreateDefaultContext()
+			
+			prog = MathematicalProgram()
+			x = prog.NewIndeterminates(self.nX,'x')
+			ucon = prog.NewIndeterminates(self.nU,'u')
+			
+			times = xtraj.get_segment_times()
+
+			t = times[-1]
+			# option 1
+			x0 = xtraj.value(t).transpose()[0]
+			u0 = utraj.value(t).transpose()[0]
+				
+			sym_context.SetContinuousState(x) #x0+
+			sym_context.FixInputPort(0, ucon ) #u0+
+			
+			# xdot=f(x,u)==>xhdot=f(xh+x0,uh+u0)-x0dot ~= df/dx*xh + df/du*uh
+			f = sym_system.EvalTimeDerivatives(sym_context).CopyToVector() # - dxtrajdt.value(t).transpose()
+			mapping = dict(zip(x, x0))
+			mapping.update(dict(zip(ucon, u0)))
+			# get the final condition, according to Tedrake10' Qf should be last S(LTI)
+			#A_sim = Jacobian(f, x)
+			#B_sim = Jacobian(f, ucon)
+			#A = Evaluate(A_sim, mapping)
+			#B = Evaluate(B_sim, mapping)
+			#k,s = LinearQuadraticRegulator(A, B, Q, R)  # get the Qf = S_lti
+			#Qf = s
+			# now, run backwards in time to solve for S for associated Riccati equation
+			Rinv = np.linalg.inv(R)
+			sol = solve_ivp(lambda t,S: self.Care(t,S,Q,Rinv,xtraj,utraj), \
+							[times[-1], times[0]], Qf.ravel(), t_eval=times[::-1])
+			K = []
+			S = []
+			Ssol = np.fliplr(sol.y)  # flip is because we switch back to normal time
+			for i in range(sol.y.shape[1]):
+				x0 = xtraj.value(times[i]).transpose()[0]
+				u0 = utraj.value(times[i]).transpose()[0]
+				A, B = self.PlantDerivatives(x0, u0)
+				#import pdb; pdb.set_trace()
+				s = Ssol[:,i].reshape(Qf.shape)
+				#
+				k = Rinv.dot(B.transpose()).dot(s)
+				if(len(K) == 0):
+					K = np.ravel(k).reshape(self.nX*self.nU,1) 
+					S = np.ravel(s).reshape(self.nX*self.nX,1) 
+				else:
+					K = np.hstack( (K, np.ravel(k).reshape(self.nX*self.nU,1)) )
+					S = np.hstack( (S, np.ravel(s).reshape(self.nX*self.nX,1)) )
+			
+			Kpp = PiecewisePolynomial.FirstOrderHold(times, K)
+			Spp = PiecewisePolynomial.FirstOrderHold(times, S)
+			#import pdb; pdb.set_trace()
+			return Kpp,Spp
+			
+
+		"""
+		# LQR at different time steps
+		def TVLQR(self, xtraj, utraj, Q, R, Qf):
+			#dxtrajdt = xtraj.derivative(1)
+			context = self.CreateDefaultContext()
+			sym_system = self.ToSymbolic()
+			sym_context = sym_system.CreateDefaultContext()
+			
 			prog = MathematicalProgram()
 			x = prog.NewIndeterminates(self.nX,'x')
 			ucon = prog.NewIndeterminates(self.nU,'u')
@@ -112,8 +190,9 @@ def DubinsPlant_(T):
 				x0 = xtraj.value(t).transpose()[0]
 				u0 = utraj.value(t).transpose()[0]
 				
-				sym_context.SetContinuousState(x0+x)
-				sym_context.FixInputPort(0, u0+ucon )
+				sym_context.SetContinuousState(x) #x0+
+				sym_context.FixInputPort(0, ucon ) #u0+
+				#import pdb; pdb.set_trace()
 				# xdot=f(x,u)==>xhdot=f(xh+x0,uh+u0)-x0dot ~= df/dx*xh + df/du*uh
 				f = sym_system.EvalTimeDerivatives(sym_context).CopyToVector() # - dxtrajdt.value(t).transpose()
 				mapping = dict(zip(x, x0))
@@ -144,9 +223,8 @@ def DubinsPlant_(T):
 			Kpp = PiecewisePolynomial.FirstOrderHold(times, K)
 			Spp = PiecewisePolynomial.FirstOrderHold(times, S)
 			
-			
 			return Kpp, Spp
-		
+		"""
 		def EvalTimeDerivatives(self, context):
 			y = context.get_continuous_state_vector().Clone()
 			x = context.get_continuous_state_vector().CopyToVector()
@@ -174,7 +252,7 @@ def DubinsPlant_(T):
 			return y
 		
 		def taylor_cos(self, x):
-			return (1.0 - (x**2)/2.0)# + (x**4)/24.0)
+			return (1.0 - (x**2)/2.0 + (x**4)/24.0)
 		
 		def taylor_sin(self, x):
 			return (x - (x**3)/6.0)  # + (x**5)/120.0)
@@ -182,6 +260,18 @@ def DubinsPlant_(T):
 		def taylor_tan(self, x):
 			return (x + (x**3)/3.0) # + (2*x**5)/15.0  )
 		
+		def EvalClosedLoopDynamics(self, x, ucon, f, x_d, u_d, K):
+			#import pdb; pdb.set_trace()
+			# LQR approach xhdot = f(x0+xh, u0-Kxh)  where xh=x-x0
+			U = u_d - K.dot(x-x_d)  # feedback law
+			delta_fb = U[0]
+			u_fb = U[1]
+			mapping = dict(zip(ucon, [delta_fb, u_fb])) #now replace u with u0-K*xh
+			f_fb = Substitute(f, mapping)  
+			f_fb = np.array([ f_fb[0][0], f_fb[1][0], f_fb[2][0]]) # gets rid of the extra array
+			
+			return f_fb
+		"""
 		def EvalClosedLoopDynamics(self, x, ucon, f, x_d, u_d, K):
 			#import pdb; pdb.set_trace()
 			# LQR approach xhdot = f(x0+xh, u0-Kxh)  where xh=x-x0
@@ -193,9 +283,11 @@ def DubinsPlant_(T):
 			delta_fb = U[1]
 			mapping = dict(zip(ucon, [delta_fb, u_fb])) #now replace u with u0-K*xh
 			f_fb = Substitute(f_fb, mapping)  
-						
+			
+			f_fb =np.array([ f_fb[0][0], f_fb[1][0], f_fb[2][0]])
+			
 			return f_fb
-		
+		"""
 		"""
 		def findLyapunovFunctionSOS(self, xtraj, utraj, deg_V, deg_L):
 			times = xtraj.get_segment_times()
@@ -257,7 +349,97 @@ def DubinsPlant_(T):
 				if(np.linalg.det(M[0:i, 0:i]) <= 0):
 					return False;
 			return True
+		
+		def minimumV(self, prev_x, Vs):
+			N = len(prev_x)
+			Vmin = np.zeros(len(Vs))
+			
+			for i in range(len(Vs)):
+				''' option 1: solve SOS programs (it's not so bad)  
+					to find minimval value of V, we get a lower bound with slack variable
+						maximize slack
+							s.t. V-slack is SOS
+				'''
+				prog = MathematicalProgram()
+				x = prog.NewIndeterminates(N,'x')
+				V = Vs[i].Substitute(dict(zip(prev_x, x)))
+				slack = prog.NewContinuousVariables(1,'g')[0] 
+				prog.AddSosConstraint( -slack + V )
+				prog.AddCost(-slack)
+				result = Solve(prog)
+				assert result.is_success()
+				Vmin[i] = result.GetSolution(slack)
+				""" option 2: do algerbraic manipulations to find
+					minimum value of this V = x'Sx   (not fully implemented yet)
+				H = np.zeros((N,N))
+				for j in range(N):
+					for k in range(N):
+						H[j][k] = V[i].Differentiate(x[j]).Differentiate(x[k])
+				
+				H = 0.5*diff(diff(V,x).transpose(),x)
+    			b = -0.5*(H / (subs(diff(V,x),x,0*x).transpose()))
+				Vmin[i] = subs(V,x,b)
+				"""
+   
+			return Vmin
 
+		def TimeVaryingLyapunovSearchRho(self, prog, prev_x, Vs, Vdots, times, rho_f, multiplier_degree=None):
+			N = len(times)-1
+			Vmin = self.minimumV(prev_x, Vs) #0.05*np.ones((1, len(times))) # need to do something here instead of this!! 
+			dt = np.diff(times)
+			rho = np.linspace(np.max(Vmin), rho_f, num=len(times)) # just heuristics for now
+			rhodot = np.diff(rho)/dt
+			# sampleCheck()
+			Lambda_vec = []
+			#slack_vec = []
+			import pdb; pdb.set_trace()
+			#fix rho, optimize Lagrange multipliers
+			for i in range(N):
+				prog = MathematicalProgram()
+				x = prog.NewIndeterminates(len(prev_x),'x')
+				V = Vs[i].Substitute(dict(zip(prev_x, x)))
+				Vdot = Vdots[i].Substitute(dict(zip(prev_x, x)))
+				Lambda = prog.NewSosPolynomial(Variables(x), multiplier_degree)[0].ToExpression()
+				gamma = prog.NewContinuousVariables(1,'g')[0] 
+				
+				prog.AddSosConstraint( gamma - (Vdot-rhodot[i] + Lambda*(V-rho[i])) )
+				prog.AddCost(gamma)
+				result = Solve(prog)
+				assert result.is_success()
+				
+				Lambda_vec.append(result.GetSolution(Lambda))
+				slack = result.GetSolution(gamma)
+				if(slack[-1]>0.0001):
+					print('Something is not great with searching for Lambda[%d]' %(i))
+					assert (slack < 0.0001)
+			
+			# fix Lagrange multipliers, maximize rho
+			rhointegral = 0.0
+			prog = MathematicalProgram()
+			x = prog.NewIndeterminates(len(prev_x),'x')
+			t = prog.NewContinuousVariables(N,'t')
+			rho = np.array([t, rho_f]) + Vmin
+			for i in range(N):
+				prog.AddConstraint(t[i]>=0.0)  # does this mean [prog,rho] = new(prog,N,'pos'); in matlab??
+				rhodot = (rho[i+1]-rho[i])/dt[i]
+				rhointegral = rhointegral+rho[i]*dt[i] + 0.5*rhod_vec[i]*(dt[i]**2)
+				
+				V    = Vs[i].Substitute(dict(zip(prev_x, x)))
+				Vdot = Vdots[i].Substitute(dict(zip(prev_x, x)))
+				L    = Lambda_vec[i].Substitute(dict(zip(prev_x, x)))
+				prog.AddSosConstraint( -(Vdot - rhodot + L * ( V-rho[i] ) ) )
+				
+			prog.AddCost(-rhointegral)
+			result = Solve(prog)
+			assert result.is_success()
+			rho = result.GetSolution(rho)
+			rhointegral = result.GetSolution(rhointegral)
+			rhodot = np.diff(rho)/dt
+			# end of iterations if we want
+			V = 1.0/rho * Vs
+			return V
+			
+			
 		def FixedLyapunovSearchRho(self, prog, x, V, Vdot, multiplier_degree=None):
 			'''
 			Assumes V>0.
@@ -268,24 +450,28 @@ def DubinsPlant_(T):
 			'''
 
 			def CheckLevelSet(prev_x, prev_V, prev_Vdot, rho, multiplier_degree):
-				#import pdb; pdb.set_trace()
 				prog = MathematicalProgram()
 				x = prog.NewIndeterminates(len(prev_x),'x')
 				V = prev_V.Substitute(dict(zip(prev_x, x)))
 				Vdot = prev_Vdot.Substitute(dict(zip(prev_x, x)))
-				slack = prog.NewContinuousVariables(1,'a')[0]  
-
+				slack = prog.NewContinuousVariables(1,'b')[0]  
+				
+				#import pdb; pdb.set_trace()
 				Lambda = prog.NewSosPolynomial(Variables(x), multiplier_degree)[0].ToExpression()
-
+				print('Vdot degree: %d' %(Polynomial(Vdot).TotalDegree()))
+				print('SOS degree: %d' %(Polynomial(-Vdot + Lambda*(V - rho) - slack*V).TotalDegree()))
+				
 				prog.AddSosConstraint(-Vdot + Lambda*(V - rho) - slack*V)
 				prog.AddCost(-slack)
-
+				#e1=prog.AddConstraint(slack, 0.0, 10.0)
 				#cstmsol = MosekSolver()
 				#result = cstmsol.Solve(prog, None, None)
 				#cstmsol = ScsSolver()
 				#result = cstmsol.Solve(prog, None, None)
 				result = Solve(prog)
-				print('Running solver w/ %s' %(result.get_solver_id().name()))
+				#import pdb; pdb.set_trace()
+				print(result.get_solution_result() )
+				print('****** Running solver w/ %s' %(result.get_solver_id().name()))
 				assert result.is_success()
 				return result.GetSolution(slack)
 
@@ -293,7 +479,7 @@ def DubinsPlant_(T):
 			if multiplier_degree is None:
 				# There are no guarantees... this is a reasonable guess:
 				multiplier_degree = Polynomial(Vdot).TotalDegree()
-				print "Using a degree " + str(multiplier_degree) + " multiplier for the S-procedure"
+				print ("Using a degree " + str(multiplier_degree) + " multiplier for the S-procedure")
 
 			rhomin = 0.
 			rhomax = 1.
@@ -328,7 +514,7 @@ def DubinsPlant_(T):
 			if multiplier_degree is None:
 				# There are no guarantees... this is a reasonable guess:
 				multiplier_degree = Polynomial(Vdot).TotalDegree()
-				print "Using a degree " + str(multiplier_degree) + " multiplier for the S-procedure"
+				print ("Using a degree " + str(multiplier_degree) + " multiplier for the S-procedure")
 
 			# TODO(russt): implement numerical "balancing" from matlab version.
 			Lambda = prog.NewSosPolynomial(Variables(x), multiplier_degree)[0].ToExpression()
@@ -343,7 +529,7 @@ def DubinsPlant_(T):
 		#    result = mosek.Solve(prog, None, None)
 			result = Solve(prog)
 
-			print "Using " + result.get_solver_id().name()
+			print ("Using " + result.get_solver_id().name())
 
 			assert result.is_success()
 			assert result.GetSolution(rho) > 0, "Optimization failed (rho <= 0)."
@@ -353,12 +539,12 @@ def DubinsPlant_(T):
 
 		def RegionOfAttraction(self, context, xtraj, utraj, V=None):
 			# Construct a polynomial V that contains all monomials with s,c,thetadot up to degree 2.
-			deg_V = 2
+			#deg_V = 2
 			# Construct a polynomial L representing the "Lagrange multiplier".
-			deg_L = 2
+			deg_L = 4
 			Q  = 3.0*np.eye(self.nX)
 			R  = 1.0*np.eye(self.nU)
-			Qf = 1.0*Q
+			Qf = 10.0*np.eye(self.nX)
 			
 			#context.SetContinuousState(xtraj.value(xtraj.end_time()))
 			#context.FixInputPort(0, utraj.value(utraj.end_time()))
@@ -383,35 +569,57 @@ def DubinsPlant_(T):
 			
 			times = xtraj.get_segment_times()
 			all_V = []
+			all_Vd=[]
+			fig, ax = plt.subplots()
+			#ax.plot(x[0,:], x[1,:], color='k', linewidth=2)
+			#ax.set_xlim([-2.5, 2.5])
+			#ax.set_ylim([-3, 3])
+			ax.set_xlabel('x')
+			ax.set_ylabel('y')
+			plt.draw()
 			
 			if V is None:
 				# Do optimization to find the Lyapunov candidate.
 				#V, Vdot = self.findLyapunovFunctionSOS(xtraj, utraj, deg_V, deg_L)
-				# Do tvlqr
-				print('Running TVLQR ... ')
-				K, S  = self.TVLQR(xtraj, utraj, Q, R, Qf)  
-				print('Done')
+				# or Do tvlqr to get S
+				print('******\nRunning TVLQR ...')
+				K, S  = self.TVLQR2(xtraj, utraj, Q, R, Qf) 
+				#S0 = S.value(times[-1]).reshape(self.nX, self.nX)
+				#print(Polynomial(x.dot(S0.dot(x))).RemoveTermsWithSmallCoefficients(1e-6))
+				#import pdb; pdb.set_trace()
+				#K, S  = self.TVLQR(xtraj, utraj, Q, R, Qf)  
+				print('Done\n******')
 				for t in times:
 					x0 = xtraj.value(t).transpose()[0]
 					u0 = utraj.value(t).transpose()[0]
 					K0 = K.value(t).reshape(self.nU, self.nX)
 					S0 = S.value(t).reshape(self.nX, self.nX)
+					S0d = S.derivative(1).value(t).reshape(self.nX, self.nX) # Sdot
 					# make sure Lyapunov candidate is pd
 					if (self.isPositiveDefinite(S0)==False):
-						print('S is not PD for t=%f' %(t))
-						
+						print('******\nS is not PD for t=%f\n******' %(t))
+					# for debugging
+					#S0 = np.eye(self.nX)
 					V = x.dot(S0.dot(x))
-					#import pdb; pdb.set_trace()
 					# get a polynomial representation of f_closedloop, xdot = f_cl(x)
 					f_cl = self.EvalClosedLoopDynamics(x, ucon, f, x0, u0, K0)
-					Vdot = V.Jacobian(x).dot(f_cl)[0]
-					#V = self.FixedLyapunovMaximizeLevelSet(prog, x, V, Vdot, 4)
-					print('Running ROA optimization for t=%f ' %(t))
-					V = self.FixedLyapunovSearchRho(prog, x, V, Vdot, 4)
+					#import pdb; pdb.set_trace()
+					# vdot = x'*Sdot*x + 2*x'*S*fcl_poly
+					Vdot = (x.transpose().dot(S0d)).dot(x) + 2*(x.transpose().dot(S0)).dot(f_cl) #2*V.Jacobian(x).dot(f_cl) #[0]
+					#V = self.FixedLyapunovMaximizeLevelSet(prog, x, V, Vdot, deg_L)
+					#print('******\nRunning ROA optimization for t=%f\n******' %(t))
+					#V = self.FixedLyapunovSearchRho(prog, x, V, Vdot, deg_L)
 					# Put V back into global coordinates
-					V = V.Substitute(dict(zip(x,x-x0)))
+					#print(x0)
+					#import pdb; pdb.set_trace()
+					#self.my_plot_sublevelset_expression(ax, V, x0)
+					#plt.show(block=False)
+					#V = V.Substitute(dict(zip(x,x-x0)))
 					all_V.append(V)
-					
+					all_Vd.append(Vdot)
+			
+			rho_f = 0.5
+			V = self.TimeVaryingLyapunovSearchRho(prog, x, all_V, all_Vd, times, rho_f, multiplier_degree=4)
 			# Check Hessian of Vdot at origin
 			#H = Evaluate(0.5*Jacobian(Vdot.Jacobian(x),x), dict(zip(x, x0)))
 			#assert isPositiveDefinite(-H), "Vdot is not negative definite at the fixed point."
@@ -422,12 +630,46 @@ def DubinsPlant_(T):
 			# Put V back into global coordinates
 			#V = V.Substitute(dict(zip(x,x-x0)))
 			return all_V
+		
+		def my_plot_sublevelset_expression(self, ax, e, x0, vertices=51, **kwargs):
+			p = Polynomial(e)
+			assert p.TotalDegree() == 2
+
+			x = list(e.GetVariables())
+			env = {a: 0 for a in x}
+			c = e.Evaluate(env)
+			e1 = e.Jacobian(x)
+			b = Evaluate(e1, env)
+			e2 = Jacobian(e1, x)
+			A = 0.5*Evaluate(e2, env)
+			# simple projection to 2D assuming we want to plot on (x1,x2)
+			A = A[0:2,0:2]
+			b = b[0:2]*0.0
+			c = 0.0
+			#Plots the 2D ellipse representing x'Ax + b'x + c <= 1, e.g.
+    		#the one sub-level set of a quadratic form.
+			H = .5*(A+A.T)
+			xmin = np.linalg.solve(-2*H, np.reshape(b, (2, 1)))
+			fmin = -xmin.T.dot(H).dot(xmin) + c  # since b = -2*H*xmin
+			assert fmin <= 1, "The minimum value is > 1; there is no sub-level set " \
+                      "to plot"
+
+			# To plot the contour at f = (x-xmin)'H(x-xmin) + fmin = 1,
+			# we make a circle of values y, such that: y'y = 1-fmin,
+			th = np.linspace(0, 2*np.pi, vertices)
+			Y = np.sqrt(1-fmin)*np.vstack([np.sin(th), np.cos(th)])
+			# then choose L'*(x - xmin) = y, where H = LL'.
+			L = np.linalg.cholesky(H)
+			X = np.tile(xmin, vertices) + np.linalg.inv(np.transpose(L)).dot(Y)
+
+			return ax.fill(X[0, :]+x0[0], X[1, :]+x0[1], **kwargs)
+			#return plot_sublevelset_quadratic(ax, A, b, c, vertices, **kwargs)
 
 	return Impl
 
 	
 def runFunnel():
-	print('running Funnel algorithm ...')
+	print('******\nrunning Funnel algorithm ...\n******')
 	
     # Declare (Dubins car) model
 	plant = DubinsPlant_[float]() #None]  # Default instantiation
@@ -437,8 +679,10 @@ def runFunnel():
 	xf = (1.5, 0.0, math.pi/4.0)  #Final desired state
 	tf0 = 1.0 # Guess for how long trajectory should take
 	utraj, xtraj = plant.runDircol(x0, xf, tf0)
-	print('Done')
-	
+	print('Trajectory takes %f[sec]' %(utraj.end_time()))
+	#import pdb; pdb.set_trace()
+	print('Done\n******')
+	#import pdb; pdb.set_trace()
 	# region of attraction:
 	context = plant.CreateDefaultContext()
 	V = plant.RegionOfAttraction(context, xtraj, utraj)
