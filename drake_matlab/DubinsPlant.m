@@ -7,17 +7,14 @@ classdef DubinsPlant < DrakeSystem
   
   methods
     function obj = DubinsPlant()
-%       obj = obj@DrakeSystem(4,0,2,4,0,1);
-        obj = obj@DrakeSystem(3,0,1,3,0,1);
+      obj = obj@DrakeSystem(3,0,1,3,0,1);
       obj = setOutputFrame(obj,getStateFrame(obj));  % allow full state feedback
     end
     
     function [xdot, df, d2f, d3f] = dynamics(obj,t,x,u)      
-%         theta = x(4);
-%         xdot = [u(1)*cos(theta);  u(1)*sin(theta); u(1); u(2)];
         theta = x(3);
-        xdot = [obj.v*cos(theta);  obj.v*sin(theta); u(1)]; % u(2)];
-
+        xdot = [obj.v*cos(theta);  obj.v*sin(theta); u(1)];
+        
         if (nargout>1)
             [df,d2f,d3f]= dynamicsGradients(obj,t,x,u,nargout-1);
         end
@@ -28,7 +25,7 @@ classdef DubinsPlant < DrakeSystem
     end
     
     function x = getInitialState(obj)
-      x = [0 0 0]'; % 0]';
+      x = [0 0 0]';
     end
     
     
@@ -39,12 +36,11 @@ classdef DubinsPlant < DrakeSystem
       prog = prog.addInputConstraint(BoundingBoxConstraint(.5*p.umin,.5*p.umax),1:N);
       prog = prog.addStateConstraint(ConstantConstraint(x0),1);
       prog = prog.addStateConstraint(ConstantConstraint(xf),N);
-%       prog = prog.addStateConstraint(BoundingBoxConstraint(-0.1,2),1:N, 1);
       prog = prog.addRunningCost(@cost);
       prog = prog.addFinalCost(@finalCost);
 
       function [g,dg] = cost(dt,x,u)
-        R = zeros(size(u));
+        R = 0;
         g = u'*R*u;
         %g = sum((R*u).*u,1);
         %dg = [zeros(1,1+size(x,1)),2*u'*R];

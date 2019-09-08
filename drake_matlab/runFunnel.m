@@ -9,7 +9,7 @@ p = setInputLimits(p,[-inf]',[inf]');
 
 % Trajectory optimization
 x0 = [0;0; 0*pi]; % Initial state that trajectory should start from
-xf = [1.5;0;-0*pi/4]; % Final desired state
+xf = [1.5;0;-0.1*pi/4]; % Final desired state
 tf0 = 1.5; % Guess for how long trajectory should take
 [utraj,xtraj]=runDircol(p,x0,xf,tf0);
 

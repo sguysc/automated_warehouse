@@ -213,7 +213,6 @@ def DubinsPlant_(T):
 		
 		# get the polynomial representation of the system using Taylor expansion on each non-polynomial expression
 		# this was done manually and on the trigonometric expressions only
-		"""
 		def EvalTimeDerivativesTaylor(self, context):
 			y = context.get_continuous_state_vector().Clone()
 			x = context.get_continuous_state_vector().CopyToVector()
@@ -227,42 +226,27 @@ def DubinsPlant_(T):
 
 			y.SetFromVector(qdot)
 			return y
-		"""
 		
 		# expansion of the trigonometric functions to whatever order we want
-		def taylor_cos(self, x, x0):
-			#return (1.0 - (x**2)/2.0 + (x**4)/24.0)
-			return ( np.cos(x0) - np.sin(x0)*(x-x0) - (np.cos(x0)*(x-x0)**2)/2.0 \
-				     + (np.sin(x0)*(x-x0)**3)/6.0 + (np.cos(x0)*(x-x0)**4)/24.0 ) 
+		def taylor_cos(self, x):
+			return (1.0 - (x**2)/2.0 + (x**4)/24.0)
 		
-		def taylor_sin(self, x, x0):
-			#return (x - (x**3)/6.0)  # + (x**5)/120.0)
-			return ( np.sin(x0) + np.cos(x0)*(x-x0) - (np.sin(x0)*(x-x0)**2)/2.0 \
-					- (np.cos(x0)*(x-x0)**3)/6.0  ) 
+		def taylor_sin(self, x):
+			return (x - (x**3)/6.0)  # + (x**5)/120.0)
 		
-		def taylor_tan(self, x, x0):
-			#return (x + (x**3)/3.0) # + (2*x**5)/15.0  )
-			return ( np.tan(x0) + (np.tan(x0)**2+1.0)*(x-x0) + \
-				     ((2.0*np.tan(x0)*(np.tan(x0)**2 + 1.0))*(x-x0)**2)/2.0  + \
-				     ((2.0*(np.tan(x0)**2 + 1)**2 + (4.0*np.tan(x0)**2)*(np.tan(x0)**2 + 1.0))*(x-x0)**3)/6.0 )
+		def taylor_tan(self, x):
+			return (x + (x**3)/3.0) # + (2*x**5)/15.0  )
 		
 		# evaluate the closed loop dynamics with the LQR feedback controller
 		#  xhdot = f(x0+xh, u0-Kxh)  where xh=x-x0
-		def EvalClosedLoopDynamics(self, x, ucon, x_d, u_d, K):
+		def EvalClosedLoopDynamics(self, x, ucon, f, x_d, u_d, K):
 			#import pdb; pdb.set_trace()
 			U = u_d - K.dot(x-x_d)  # feedback law
 			delta_fb = U[0]
 			u_fb = U[1]
-			theta = x[2]
-
-			# get polynomial dynamics around (xd,ud)
-			f_fb = np.array([u_fb*self.taylor_cos(theta, x_d[2]), \
-					      	 u_fb*self.taylor_sin(theta, x_d[2]), \
-						  	 u_fb*self.taylor_tan(delta_fb, u_d[0])/self.L])
-			
-			#mapping = dict(zip(ucon, [delta_fb, u_fb])) #now replace u with u0-K*xh
-			#f_fb = Substitute(f, mapping)  # now xdot=f(x), autonomous system
-			#f_fb = np.array([ f_fb[0][0], f_fb[1][0], f_fb[2][0]]) # gets rid of the extra array
+			mapping = dict(zip(ucon, [delta_fb, u_fb])) #now replace u with u0-K*xh
+			f_fb = Substitute(f, mapping)  # now xdot=f(x), autonomous system
+			f_fb = np.array([ f_fb[0][0], f_fb[1][0], f_fb[2][0]]) # gets rid of the extra array
 			
 			return f_fb
 
@@ -343,7 +327,6 @@ def DubinsPlant_(T):
 						maximize slack
 							s.t. V-slack is SOS
 				'''
-				"""
 				prog = MathematicalProgram()
 				x = prog.NewIndeterminates(N,'x')
 				V = Vs[i].Substitute(dict(zip(prev_x, x)))
@@ -355,51 +338,36 @@ def DubinsPlant_(T):
 				result = Solve(prog)
 				assert result.is_success()
 				Vmin[i] = result.GetSolution(slack)
-				"""
 				""" option 2: do algerbraic manipulations to find
-					minimum value of this V = x'Sx   
+					minimum value of this V = x'Sx   (not fully implemented yet)
+				H = np.zeros((N,N))
+				for j in range(N):
+					for k in range(N):
+						H[j][k] = V[i].Differentiate(x[j]).Differentiate(x[k])
+				
+				H = 0.5*diff(diff(V,x).transpose(),x)
+    			b = -0.5*(H / (subs(diff(V,x),x,0*x).transpose()))
+				Vmin[i] = subs(V,x,b)
 				"""
-				xmin, vmin = self.SampleCheck(prev_x, Vs[i])
-				Vmin[i] = vmin
-				#print('knot (%d): derivatives/optimization: %g/%g; ' %(i, vmin, Vmin[i]))
-				#import pdb; pdb.set_trace()
    
 			return Vmin
 
-		def SampleCheck(self, x, V, Vdot=None):
-			b = np.zeros((self.nX,1))
-			H = np.zeros((self.nX,self.nX))
-			
-			for i in range(self.nX):
-				b[i] = -V.Jacobian(x)[i].Evaluate(dict(zip(x,np.zeros(self.nX))))
-				for j in range(self.nX):
-					H[i,j] = V.Jacobian(x)[i].Jacobian(x)[j].Evaluate(dict(zip(x,np.zeros(self.nX))))
-			
-			min_x = np.linalg.solve(H, b)
-			mapping = dict(zip(x, min_x))
-			
-			if Vdot is None:
-				return min_x, V.Evaluate(mapping)
-			else:
-				return min_x, V.Evaluate(mapping), Vdot.Evaluate(mapping)
-			
-			
 		# Attempts to find the largest funnel, defined by the time-varying
 		# one-level set of V, which verifies (using SOS over state at finite 
 		# sample points in time) initial conditions to end inside the one-level set
 		# of the goal region G at time ts(end).  
 		# from the paper "Invariant Funnels around Trajectories usingSum-of-Squares Programming", Tobenkin et al.
-		def TimeVaryingLyapunovSearchRho(self, prog, prev_x, Vs, Vdots, times, xtraj, utraj, rho_f, multiplier_degree=None):
-			C = 4.0
+		def TimeVaryingLyapunovSearchRho(self, prog, prev_x, Vs, Vdots, times, rho_f, multiplier_degree=None):
 			N = len(times)-1
 			Vmin = self.minimumV(prev_x, Vs) #0.05*np.ones((1, len(times))) # need to do something here instead of this!! 
+			print(Vmin)
 			dt = np.diff(times)
-			rho = np.flipud(rho_f*np.exp(-C*(np.array(times)-times[0])/(times[-1]-times[0])))+ np.max(Vmin) 
-			
+			rho = np.flipud(rho_f*np.exp(-2.0*(np.array(times)-times[0])/(times[-1]-times[0])))+ np.max(Vmin) 
+			#rho = np.linspace(np.max(Vmin), rho_f, num=len(times)) # just heuristics for now
 			rhodot = np.diff(rho)/dt
 			# sampleCheck()
 			Lambda_vec = []
-			x_vec = []
+			#slack_vec = []
 			#import pdb; pdb.set_trace()
 			#fix rho, optimize Lagrange multipliers
 			for i in range(N):
@@ -407,48 +375,37 @@ def DubinsPlant_(T):
 				x = prog.NewIndeterminates(len(prev_x),'x')
 				V = Vs[i].Substitute(dict(zip(prev_x, x)))
 				Vdot = Vdots[i].Substitute(dict(zip(prev_x, x)))
-				x0 = xtraj.value(times[i]).transpose()[0]
-				#xmin, vmin, vdmin = self.SampleCheck(x, V, Vdot)
-				#if(vdmin > rhodot[i]):
-				#	print('Vdot is greater than rhodot!')
-					
 				Lambda = prog.NewSosPolynomial(Variables(x), multiplier_degree)[0].ToExpression()
-				Lambda = Lambda.Substitute(dict(zip(x, x-x0))) # switch to relative state (lambda(xbar)
 				gamma = prog.NewContinuousVariables(1,'g')[0] 
 				# Jdot-rhodot+Lambda*(rho-J) < -gamma
-				prog.AddSosConstraint( -gamma - (Vdot-rhodot[i] + Lambda*(rho[i]-V)) ) #gamma*(x-x0).dot(x-x0)
-				#prog.AddConstraint( gamma >= 1.0E-12 )
-				#prog.AddSosConstraint( gamma - (Vdot-rhodot[i] + Lambda*(rho[i]-V)))# *L1*(times-t[i])*(t[i+1]-times) ) ) 
-				#gamma*x.transpose().dot(x)
+				prog.AddSosConstraint( -gamma*x.transpose().dot(x) - (Vdot-rhodot[i] + Lambda*(rho[i]-V)) ) #gamma*x.transpose().dot(x)
+				prog.AddConstraint( gamma >= 1.0E-6 )
 				prog.AddCost(-gamma) #maximize gamma
 				result = Solve(prog)
 				assert result.is_success()
+				
 				Lambda_vec.append(result.GetSolution(Lambda))
 				slack = result.GetSolution(gamma)
-				x_vec.append(x)
-				#import pdb; pdb.set_trace()
-				#if(slack > 1E-4):
-				#	print('Something is not great with searching for Lambda[%d] :(' %(i))
-				#	assert (slack < 0.0001)
+				if(slack[-1]>0.0001):
+					print('Something is not great with searching for Lambda[%d] :(' %(i))
+					assert (slack < 0.0001)
 			
 			# fix Lagrange multipliers, maximize rho
 			rhointegral = 0.0
 			prog = MathematicalProgram()
-			xx = prog.NewIndeterminates(len(x),'x')
+			x = prog.NewIndeterminates(len(prev_x),'x')
 			t = prog.NewContinuousVariables(N,'t')
-			#import pdb; pdb.set_trace()
-			rho = np.concatenate((t,[rho_f])) + Vmin
+			rho = np.array([t, rho_f]) + Vmin
 			for i in range(N):
 				prog.AddConstraint(t[i]>=0.0)  # does this mean [prog,rho] = new(prog,N,'pos'); in matlab??
-				rhod = (rho[i+1]-rho[i])/dt[i]
-				rhointegral = rhointegral+rho[i]*dt[i] + 0.5*rhod*(dt[i]**2)
+				rhodot = (rho[i+1]-rho[i])/dt[i]
+				rhointegral = rhointegral+rho[i]*dt[i] + 0.5*rhod_vec[i]*(dt[i]**2)
 				
-				V    = Vs[i].Substitute(dict(zip(prev_x, xx)))
-				Vdot = Vdots[i].Substitute(dict(zip(prev_x, xx)))
-				x0   = xtraj.value(times[i]).transpose()[0]
-				L1   = Lambda_vec[i].Substitute(dict(zip(x_vec[i], xx)))
-				prog.AddSosConstraint( -(Vdot - rhod + L1 * ( rho[i]-V ) ) )
-			
+				V    = Vs[i].Substitute(dict(zip(prev_x, x)))
+				Vdot = Vdots[i].Substitute(dict(zip(prev_x, x)))
+				L    = Lambda_vec[i].Substitute(dict(zip(prev_x, x)))
+				prog.AddSosConstraint( -(Vdot - rhodot + L * ( rho[i]-V ) ) )
+				
 			prog.AddCost(-rhointegral)
 			result = Solve(prog)
 			assert result.is_success()
@@ -564,7 +521,7 @@ def DubinsPlant_(T):
 			deg_L = 4
 			Q  = 3.0*np.eye(self.nX)
 			R  = 1.0*np.eye(self.nU)
-			Qf = 1.0*np.eye(self.nX)
+			Qf = 3.0*np.eye(self.nX)
 			# set some constraints on inputs
 			#context.SetContinuousState(xtraj.value(xtraj.end_time()))
 			#context.FixInputPort(0, utraj.value(utraj.end_time()))
@@ -580,12 +537,13 @@ def DubinsPlant_(T):
 			prog = MathematicalProgram()
 			x = prog.NewIndeterminates(self.nX, 'x')
 			ucon = prog.NewIndeterminates(self.nU, 'u')
-			#sym_system = self.ToSymbolic()
-			#sym_context = sym_system.CreateDefaultContext()
-			#sym_context.SetContinuousState(x)
-			#sym_context.FixInputPort(0, ucon )
-			#f = sym_system.EvalTimeDerivativesTaylor(sym_context).CopyToVector() 
-						
+			sym_system = self.ToSymbolic()
+			sym_context = sym_system.CreateDefaultContext()
+			sym_context.SetContinuousState(x)
+			sym_context.FixInputPort(0, ucon )
+			f = sym_system.EvalTimeDerivativesTaylor(sym_context).CopyToVector() 
+			#f = sym_system.EvalTimeDerivatives(sym_context).CopyToVector() 
+			
 			times = xtraj.get_segment_times()
 			all_V = []
 			all_Vd=[]
@@ -620,14 +578,12 @@ def DubinsPlant_(T):
 						assert False, '******\nS is not PD for t=%f\n******' %(t)
 					# for debugging
 					#S0 = np.eye(self.nX)
-					#V = x.dot(S0.dot(x))
-					V = (x-x0).dot(S0.dot((x-x0)))
+					V = x.dot(S0.dot(x))
 					# get a polynomial representation of f_closedloop, xdot = f_cl(x)
-					f_cl = self.EvalClosedLoopDynamics(x, ucon, x0, u0, K0)
-					# vdot = x'*Sdot*x + dV/dx*fcl_poly
-					#Vdot = (x.transpose().dot(S0d)).dot(x) + V.Jacobian(x).dot(f_cl) 
-					Vdot = ((x-x0).transpose().dot(S0d)).dot((x-x0)) + V.Jacobian(x).dot(f_cl) 
-					#deg_L = np.max([Polynomial(Vdot).TotalDegree(), deg_L])
+					f_cl = self.EvalClosedLoopDynamics(x, ucon, f, x0, u0, K0)
+					# vdot = x'*Sdot*x + 2*x'*S*fcl_poly
+					#Vdot = (x.transpose().dot(S0d)).dot(x) + 2*(x.transpose().dot(S0)).dot(f_cl) 
+					Vdot = (x.transpose().dot(S0d)).dot(x) + V.Jacobian(x).dot(f_cl) 
 					# store it for later use
 					all_V.append(V)
 					all_fcl.append(f_cl)
@@ -640,9 +596,9 @@ def DubinsPlant_(T):
 			#	Vdot = V_pp.value(t).Jacobian(x).transpose().dot(all_fcl.value(t)) + Vdot_pp.value(t)
 			#	all_Vd.append(Vdot)
 			
-			rho_f = 1.0
+			rho_f = 0.5
 			# time-varying PolynomialLyapunovFunction who's one-level set defines the verified invariant region
-			V = self.TimeVaryingLyapunovSearchRho(prog, x, all_V, all_Vd, times, xtraj, utraj, rho_f, multiplier_degree=deg_L)
+			V = self.TimeVaryingLyapunovSearchRho(prog, x, all_V, all_Vd, times, rho_f, multiplier_degree=4)
 			# Check Hessian of Vdot at origin
 			#H = Evaluate(0.5*Jacobian(Vdot.Jacobian(x),x), dict(zip(x, x0)))
 			#assert isPositiveDefinite(-H), "Vdot is not negative definite at the fixed point."
