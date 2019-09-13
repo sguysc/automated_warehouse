@@ -47,9 +47,9 @@ def FixedLyapunovSearchRho(prog, x, V, Vdot, multiplier_degree=None):
         slack = prog.NewContinuousVariables(1,'a')[0]
 
         Lambda = prog.NewSosPolynomial(Variables(x), multiplier_degree)[0].ToExpression()
-        print('V degree: %d' %(Polynomial(V).TotalDegree()))
-        print('Vdot degree: %d' %(Polynomial(Vdot).TotalDegree()))
-        print('SOS degree: %d' %(Polynomial(-Vdot + Lambda*(V - rho) - slack*V).TotalDegree()))
+        #print('V degree: %d' %(Polynomial(V).TotalDegree()))
+        #print('Vdot degree: %d' %(Polynomial(Vdot).TotalDegree()))
+        #print('SOS degree: %d' %(Polynomial(-Vdot + Lambda*(V - rho) - slack*V).TotalDegree()))
         prog.AddSosConstraint(-Vdot + Lambda*(V - rho) - slack*V)
         prog.AddCost(-slack)
 
@@ -82,6 +82,8 @@ def FixedLyapunovSearchRho(prog, x, V, Vdot, multiplier_degree=None):
             rhomax = rho
     
     rho = (rhomin + rhomax)/2
+    print(V)
+    print(rho)
     return V/rho
     
 
@@ -158,6 +160,7 @@ def RegionOfAttraction(system, context, V=None):
     
     # Put V back into global coordinates
     V = V.Substitute(dict(zip(x,x-x0)))
+    
     return V
 
 from pydrake.all import SymbolicVectorSystem, Variable, plot_sublevelset_expression
@@ -171,6 +174,6 @@ context = vdp.CreateDefaultContext()
 context.SetContinuousState([0, 0])
 
 V = RegionOfAttraction(vdp, context)
-import pdb; pdb.set_trace()
+#import pdb; pdb.set_trace()
 plot_sublevelset_expression(ax, V)
 plt.show()
