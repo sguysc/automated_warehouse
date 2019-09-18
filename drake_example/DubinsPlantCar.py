@@ -1,8 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import math
+from scipy.misc import factorial
+import itertools
 
 from pydrake.all import (DirectCollocation, PiecewisePolynomial, BasicVector_, LeafSystem_, Solve, FirstOrderTaylorApproximation, LinearQuadraticRegulator, Linearize, Variables, MathematicalProgram, Evaluate, Jacobian, RealContinuousLyapunovEquation, Substitute)
+from pydrake.all import (Simulator, DiagramBuilder, VectorSystem)
 from pydrake.all import (plot_sublevelset_quadratic)
 from pydrake.systems.scalar_conversion import TemplateSystem
 from pydrake import symbolic
@@ -15,6 +18,66 @@ from pydrake.solvers.mosek import MosekSolver
 # to solve the differential ricatti eqn
 from scipy.integrate import solve_ivp
 
+class Controller(VectorSystem):
+    def __init__(self, K):
+        # 3 inputs (double pend state), 2  outputs.
+        VectorSystem.__init__(self, 3, 2)
+        self.K = K
+
+    def DoCalcVectorOutput(self, context, state, unused, output):
+        # Extract manipulator dynamics.
+		output[:] = np.dot(-self.K, x)
+
+	
+"""
+@TemplateSystem.define("ClosedLoop_")
+def ClosedLoop_(T):
+	class Impl(LeafSystem_[T]):
+		def _construct(self, converter=None):
+			# car model:
+			# ==========
+			# X = [x y theta]';    U = [delta v]'   [steer ang, fwd vel]'
+			# xdot = v*cos(teta)
+			# ydot = v*sin(teta)
+			# tetadot = v/L * tan( delta )
+			LeafSystem_[T].__init__(self, converter)
+			self.nX = 3
+			self.nU = 3
+			# 2 inputs (delta steering angle, u forward velocity)
+			self.DeclareVectorInputPort("u", BasicVector_[T](self.nU))
+			# three outputs (full state)
+			self.DeclareVectorOutputPort("x", BasicVector_[T](self.nX),
+										 self.CopyStateOut)
+			# three positions, no velocities
+			self.DeclareContinuousState(self.nX, 0, 0)
+
+			# parameters and limits
+			self.L = 1.0 #length of car
+			self.umax =  5.0  #m/sec
+			self.delmax =  30.0*math.pi/180.0  #rad
+			self.K = np.zeros((2,3))
+
+		def _construct_copy(self, other, converter=None):
+			Impl._construct(self, converter=converter)
+
+		def CopyStateOut(self, context, output):
+			x = context.get_continuous_state_vector().CopyToVector()
+			output.SetFromVector(x) # = y 
+
+		# X = [x y theta]';    U = [delta v]'   [steer ang, fwd vel]'
+		def DoCalcTimeDerivatives(self, context, derivatives):
+			x = context.get_continuous_state_vector().CopyToVector()
+			r = self.EvalVectorInput(context, 0).CopyToVector() #x_d, y_d, teta_d
+			theta = x[2]
+			u = np.dot(-self.K, r-x)
+			
+			qdot = np.array([ u[1]*np.cos(theta), \
+							  u[1]*np.sin(theta), \
+							  u[1]*np.tan(u[0])/self.L ])
+			derivatives.get_mutable_vector().SetFromVector(qdot)
+			
+	return Impl
+"""
 @TemplateSystem.define("DubinsPlant_")
 def DubinsPlant_(T):
 	class Impl(LeafSystem_[T]):
@@ -246,24 +309,72 @@ def DubinsPlant_(T):
 				     ((2.0*np.tan(x0)*(np.tan(x0)**2 + 1.0))*(x-x0)**2)/2.0  + \
 				     ((2.0*(np.tan(x0)**2 + 1)**2 + (4.0*np.tan(x0)**2)*(np.tan(x0)**2 + 1.0))*(x-x0)**3)/6.0 )
 		
-		# evaluate the closed loop dynamics with the LQR feedback controller
-		#  xhdot = f(x0+xh, u0-Kxh)  where xh=x-x0
-		def EvalClosedLoopDynamics(self, x, ucon, x_d, u_d, K):
+		
+		def SystemTaylorExpansion(self, xstate, ucon, x0state, u0, x0dot, K, order=3):
+			# get polynomial dynamics around (xd,ud)
 			#import pdb; pdb.set_trace()
-			U = u_d - K.dot(x-x_d)  # feedback law
+			sym_system = self.ToSymbolic()
+			sym_context = sym_system.CreateDefaultContext()
+			sym_context.SetContinuousState(xstate)
+			sym_context.FixInputPort(0, ucon )
+			f = sym_system.EvalTimeDerivatives(sym_context).CopyToVector() 
+			
+			U = u0 - K.dot(xstate-x0state)  # feedback law
 			delta_fb = U[0]
 			u_fb = U[1]
-			theta = x[2]
+			fb_map = dict(zip(ucon, [delta_fb, u_fb]))
+			for i in range(len(f)):
+				f[i] = f[i].Substitute(fb_map) - x0dot[i]
+			
+			x = np.append(xstate, ucon)
+			x0 = np.append(x0state, u0)
+			x_vars = range(len(x))
+			mapping = dict(zip(xstate, x0state))
+			mapping.update(dict(zip(ucon, u0)))
+			df = 0.0*f
+			
+			for i in range(len(f)):
+				f_sym = f[i]
+				df[i] = f_sym.Substitute(mapping) # f(x0,u0)
+				#func_expression = 'f%d = f(0) + '%(i)
+				for n in range(1,order+1):
+					p1 = itertools.product(x_vars, repeat=n) # combinations_with_replacement(x_vars, r=n)
+					for pair in p1:
+						df_n = 1.0
+						df_sym = f_sym
+						#df_sym_expr = 'df'
+						#df_n_expr = ''
+						for comp in pair:
+							df_sym = df_sym.Differentiate(x[comp])
+							#df_sym_expr = df_sym_expr + '_dx[%d]'%(comp)
+							df_n = df_n * (x[comp]-x0[comp])
+							#df_n_expr = df_n_expr + '*(x[%d]-x0[%d])'%(comp, comp)
+						#func_expression = func_expression + str(df_sym_expr) + str(df_n_expr) + '/%d! + '%(n)
+						df_n = df_n*df_sym.Evaluate(mapping)/factorial(n)
+						df[i] = df[i] + df_n
+					#func_expression = func_expression + '\n'
+				#print(func_expression)
+			#import pdb; pdb.set_trace()
+			return df
+		
+		# evaluate the closed loop dynamics with the LQR feedback controller
+		#  xhdot = f(x0+xh, u0-Kxh)  where xh=x-x0
+		def EvalClosedLoopDynamics(self, x, ucon, x_d, u_d, x_d_dot, K):
+			#import pdb; pdb.set_trace()
+			#U = u_d - K.dot(x-x_d)  # feedback law
+			#delta_fb = U[0]
+			#u_fb = U[1]
+			#theta = x[2]
 
 			# get polynomial dynamics around (xd,ud)
-			f_fb = np.array([u_fb*self.taylor_cos(theta, x_d[2]), \
-					      	 u_fb*self.taylor_sin(theta, x_d[2]), \
-						  	 u_fb*self.taylor_tan(delta_fb, u_d[0])/self.L])
+			#f_fb = np.array([u_fb*self.taylor_cos(theta, x_d[2]), \
+			#		      	 u_fb*self.taylor_sin(theta, x_d[2]), \
+			#			  	 u_fb*self.taylor_tan(delta_fb, u_d[0])/self.L])
 			
 			#mapping = dict(zip(ucon, [delta_fb, u_fb])) #now replace u with u0-K*xh
 			#f_fb = Substitute(f, mapping)  # now xdot=f(x), autonomous system
 			#f_fb = np.array([ f_fb[0][0], f_fb[1][0], f_fb[2][0]]) # gets rid of the extra array
-			
+			f_fb = self.SystemTaylorExpansion(x, ucon, x_d, u_d, x_d_dot, K, order=4)
 			return f_fb
 
 		"""
@@ -388,24 +499,27 @@ def DubinsPlant_(T):
 				x = prog.NewIndeterminates(len(prev_x),'x')
 				V = Vs.Substitute(dict(zip(prev_x, x)))
 				Vdot = Vsdot.Substitute(dict(zip(prev_x, x)))
-				slack = prog.NewContinuousVariables(1,'b')[0]  
-				V_norm = 0.0*V
-				for i in range(len(x)):
-					basis = np.ones(len(x))
-					V_norm = V_norm + V.Substitute(dict(zip(x, basis)))
+				slack = prog.NewContinuousVariables(1,'a')[0]  
+				#mapping = dict(zip(x, np.ones(len(x))))
+				#V_norm = 0.0*V
+				#for i in range(len(x)):
+				#	basis = np.ones(len(x))
+				#	V_norm = V_norm + V.Substitute(dict(zip(x, basis)))
 				#V = V/V_norm
 				#Vdot = Vdot/V_norm
-				import pdb; pdb.set_trace()
-				prog.AddConstraint(V_norm == 0)
+				#prog.AddConstraint(V_norm == 0)
 				
 				Lambda = prog.NewSosPolynomial(Variables(x), multiplier_degree)[0].ToExpression()
-				prog.AddSosConstraint(-Vdot + Lambda*(V - rho) - slack)
+				prog.AddSosConstraint(-Vdot + Lambda*(V - rho) - slack*V)
 				prog.AddCost(-slack)
+				#import pdb; pdb.set_trace()
 				result = Solve(prog)
 				print(result.get_solution_result() )
 				print('slack = %f' %(result.GetSolution(slack)) )
-				import pdb; pdb.set_trace()
-				assert result.is_success()
+				#import pdb; pdb.set_trace()
+				if(not result.is_success()):
+					print('Rho = %f' %(rho))
+					assert result.is_success()
 				return result.GetSolution(slack)
 			
 		# Attempts to find the largest funnel, defined by the time-varying
@@ -505,113 +619,15 @@ def DubinsPlant_(T):
 			
 			V = 1.0/rho * Vs
 			return V
-			
-		"""	
-		def FixedLyapunovSearchRho(self, prog, x, V, Vdot, multiplier_degree=None):
-			#'''
-			Assumes V>0.
-			V <= rho => Vdot <= 0 via
-				find Lambda subject to
-				  -Vdot + Lambda*(V - rho) is SOS, 
-				  Lambda is SOS.
-			#'''
-
-			def CheckLevelSet(prev_x, prev_V, prev_Vdot, rho, multiplier_degree):
-				prog = MathematicalProgram()
-				x = prog.NewIndeterminates(len(prev_x),'x')
-				V = prev_V.Substitute(dict(zip(prev_x, x)))
-				Vdot = prev_Vdot.Substitute(dict(zip(prev_x, x)))
-				slack = prog.NewContinuousVariables(1,'b')[0]  
-				
-				#import pdb; pdb.set_trace()
-				Lambda = prog.NewSosPolynomial(Variables(x), multiplier_degree)[0].ToExpression()
-				print('Vdot degree: %d' %(Polynomial(Vdot).TotalDegree()))
-				print('SOS degree: %d' %(Polynomial(-Vdot + Lambda*(V - rho) - slack*V).TotalDegree()))
-				
-				prog.AddSosConstraint(-Vdot + Lambda*(V - rho) - slack*V)
-				prog.AddCost(-slack)
-				#e1=prog.AddConstraint(slack, 0.0, 10.0)
-				#cstmsol = MosekSolver()
-				#result = cstmsol.Solve(prog, None, None)
-				#cstmsol = ScsSolver()
-				#result = cstmsol.Solve(prog, None, None)
-				result = Solve(prog)
-				#import pdb; pdb.set_trace()
-				print(result.get_solution_result() )
-				print('****** Running solver w/ %s' %(result.get_solver_id().name()))
-				assert result.is_success()
-				return result.GetSolution(slack)
-
-			#import pdb; pdb.set_trace()
-			if multiplier_degree is None:
-				# There are no guarantees... this is a reasonable guess:
-				multiplier_degree = Polynomial(Vdot).TotalDegree()
-				print ("Using a degree " + str(multiplier_degree) + " multiplier for the S-procedure")
-
-			rhomin = 0.
-			rhomax = 1.
-
-			# First bracket the solution
-			while CheckLevelSet(x, V, Vdot, rhomax, multiplier_degree) > 0:
-				rhomin = rhomax
-				rhomax = 1.2*rhomax
-
-			# TODO(russt): Could use a continuous (black-box) optimization (e.g. we used fzero in MATLAB)
-			# TODO(russt): Make the tolerance an option?
-			tolerance = 1e-4
-			while rhomax - rhomin > tolerance:
-				rho = (rhomin + rhomax)/2
-				if CheckLevelSet(x, V, Vdot, rho, multiplier_degree) >= 0:
-					rhomin = rho
-				else:
-					rhomax = rho
-
-			rho = (rhomin + rhomax)/2
-			return V/rho
-
-		def FixedLyapunovMaximizeLevelSet(self, prog, x, V, Vdot, multiplier_degree=None):
-			'''
-			Assumes V>0.
-			Vdot >= 0 => V >= rho (or x=0) via 
-				maximize rho subject to
-				  (V-rho)*x'*x - Lambda*Vdot is SOS, 
-				  Lambda is SOS.
-			'''
-
-			if multiplier_degree is None:
-				# There are no guarantees... this is a reasonable guess:
-				multiplier_degree = Polynomial(Vdot).TotalDegree()
-				print ("Using a degree " + str(multiplier_degree) + " multiplier for the S-procedure")
-
-			# TODO(russt): implement numerical "balancing" from matlab version.
-			Lambda = prog.NewSosPolynomial(Variables(x), multiplier_degree)[0].ToExpression()
-
-			rho = prog.NewContinuousVariables(1, "rho")[0]
-			prog.AddSosConstraint((V-rho)*(x.dot(x)) - Lambda*Vdot)
-
-			prog.AddCost(-rho)
-
-		#    mosek = MosekSolver()
-		#    mosek.set_stream_logging(True, 'mosek.out')
-		#    result = mosek.Solve(prog, None, None)
-			result = Solve(prog)
-
-			print ("Using " + result.get_solver_id().name())
-
-			assert result.is_success()
-			assert result.GetSolution(rho) > 0, "Optimization failed (rho <= 0)."
-
-			return V/result.GetSolution(rho)
-		"""
 		
-		def RegionOfAttraction(self, context, xtraj, utraj, V=None):
+		def RegionOfAttraction(self, xtraj, utraj, V=None):
 			# Construct a polynomial V that contains all monomials with s,c,thetadot up to degree 2.
 			#deg_V = 2
 			# Construct a polynomial L representing the "Lagrange multiplier".
 			deg_L = 4
 			Q  = 10.0*np.eye(self.nX)
 			R  = 1.0*np.eye(self.nU)
-			#Qf = 1.0*np.eye(self.nX)
+			Qf = 1.0*np.eye(self.nX)
 			xdotraj = xtraj.derivative(1)
 			# set some constraints on inputs
 			#context.SetContinuousState(xtraj.value(xtraj.end_time()))
@@ -639,13 +655,13 @@ def DubinsPlant_(T):
 			all_Vd=[]
 			all_Vd2=[]
 			all_fcl=[]
-			fig, ax = plt.subplots()
+			#fig, ax = plt.subplots()
 			#ax.plot(x[0,:], x[1,:], color='k', linewidth=2)
 			#ax.set_xlim([-2.5, 2.5])
 			#ax.set_ylim([-3, 3])
-			ax.set_xlabel('x')
-			ax.set_ylabel('y')
-			plt.draw()
+			#ax.set_xlabel('x')
+			#ax.set_ylabel('y')
+			#plt.draw()
 			# get the final ROA to be the initial condition (of t=end) of the S from Ricatti)
 			if True:
 				tf = times[-1]
@@ -659,19 +675,38 @@ def DubinsPlant_(T):
 					assert False, '******\nQf is not PD for t=%f\n******' %(tf)
 				Vf = (x-x0).transpose().dot(Qf.dot((x-x0)))
 				# normalization of the lyapunov function
+				"""
 				coeffs = Polynomial(Vf).monomial_to_coefficient_map().values()
 				sumV = 0.
 				for coeff in coeffs:
 					sumV = sumV + np.abs(coeff.Evaluate())
 				Vf = Vf / sumV  #normalize coefficient sum to one
+				"""
+				#import pdb; pdb.set_trace()
 				# get a polynomial representation of f_closedloop, xdot = f_cl(x)
-				f_cl = self.EvalClosedLoopDynamics(x, ucon, x0, u0, Kf)
+				f_cl = self.EvalClosedLoopDynamics(x, ucon, x0, 0.0*u0, 0.0*xd0, Kf) # static
 				Vfdot = Vf.Jacobian(x).dot(f_cl) # we're just doing the static final point to get Rho_f
-				rho_guess = 1.0e-4
-				while self.CheckLevelSet(x, Vf, Vfdot, rho_guess, multiplier_degree=deg_L)>0:
-					rho_guess = rho_guess * 1.2
-				print('Rho_f = %f' %(rho_guess))
-			import pdb; pdb.set_trace()
+				rhomin = 0.0
+				rhomax = 0.1
+				#import pdb; pdb.set_trace()
+			    # First bracket the solution
+				while self.CheckLevelSet(x, Vf, Vfdot, rhomax, multiplier_degree=deg_L) > 0:
+					rhomin = rhomax
+					rhomax = 1.2*rhomax
+					
+				print('Rho_max = %f' %(rhomax))
+				tolerance = 1e-4
+				while rhomax - rhomin > tolerance:
+					rho_f = (rhomin + rhomax)/2
+					if self.CheckLevelSet(x, Vf, Vfdot, rho_f, multiplier_degree=deg_L) >= 0:
+						rhomin = rho_f
+					else:
+						rhomax = rho_f
+    
+				rho_f = (rhomin + rhomax)/2
+				print('Rho_f = %f' %(rho_f))
+    
+			#import pdb; pdb.set_trace()
 			# end of getting initial conditions
 			if V is None:
 				# Do optimization to find the Lyapunov candidate.
@@ -704,7 +739,7 @@ def DubinsPlant_(T):
 						sumV = sumV + np.abs(coeff.Evaluate())
 					V = V / sumV  #normalize coefficient sum to one
 					# get a polynomial representation of f_closedloop, xdot = f_cl(x)
-					f_cl = self.EvalClosedLoopDynamics(x, ucon, x0, u0, K0)
+					f_cl = self.EvalClosedLoopDynamics(x, ucon, x0, u0, xd0, K0)
 					#import pdb; pdb.set_trace()
 					# vdot = x'*Sdot*x + dV/dx*fcl_poly
 					#Vdot = (x.transpose().dot(S0d)).dot(x) + V.Jacobian(x).dot(f_cl(xbar)) 
@@ -771,6 +806,7 @@ def runFunnel():
 	
     # Declare car model
 	plant = DubinsPlant_[float]() #None]  # Default instantiation
+	#CL = ClosedLoop_[float]()
 		
 	# Trajectory optimization to get nominal trajectory
 	x0 = (0.0, 0.0, -math.pi/4.0)  #Initial state that trajectory should start from
@@ -779,10 +815,44 @@ def runFunnel():
 	utraj, xtraj = plant.runDircol(x0, xf, tf0)
 	print('Trajectory takes %f[sec]' %(utraj.end_time()))
 	print('Done\n******')
+	
+	#Af, Bf = plant.PlantDerivatives(xf, (0.0, 1.0) )
+	#Kf, Qf = LinearQuadraticRegulator(Af, Bf, np.eye(3), np.eye(2))
+	"""
+	# simulate it
+	builder = DiagramBuilder()
+	full_system = builder.AddSystem( plant )
+	#full_system = builder.AddSystem( CL )
+	#builder.ExportInput(plant.GetInputPort('u'))
+	controller = builder.AddSystem(Controller( Kf ) )
+	builder.Connect(controller.get_output_port(0), plant.get_input_port(0))
+	builder.Connect(plant.get_output_port(0), controller.get_input_port(0))
+	diagram = builder.Build()
+	simulator = Simulator(diagram)
+	##simulator.set_target_realtime_rate(1.0)
+	context = simulator.get_mutable_context()
+	#context = CL.CreateDefaultContext()
+	context.SetTime(0.)
+	context.SetContinuousState(xf + 0.1*np.random.randn(3,))
+	import pdb; pdb.set_trace()
+	context.FixInputPort(0, np.dot(Kf,xf))
+	
+	simulator.Initialize()
+	simulator.AdvanceTo(tf0)
+	"""
+	#prog = MathematicalProgram()
+	#x = prog.NewIndeterminates(plant.nX, 'x')
+	#ucon = prog.NewIndeterminates(plant.nU, 'u')
+	#times = xtraj.get_segment_times()
+	#x0 = xtraj.value(times[-1]).transpose()[0]
+	#u0 = utraj.value(times[-1]).transpose()[0]
 	#import pdb; pdb.set_trace()
+	#K = np.array([[-2.60026509,  1.79961703,  3.78016871], \
+    #      		  [1.79961703,  2.60026509,  0.61408817]])
+	#plant.SystemTaylorExpansion(x, ucon, x0, u0, K, order=3)
 	# region of attraction:
-	context = plant.CreateDefaultContext()
-	V = plant.RegionOfAttraction(context, xtraj, utraj)
+	#context = plant.CreateDefaultContext()
+	V = plant.RegionOfAttraction(xtraj, utraj)
 	#print('V=')
 	#print(V)
 		
