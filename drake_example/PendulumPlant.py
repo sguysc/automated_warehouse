@@ -71,12 +71,19 @@ def PendulumPlant_(T):
 							   minimum_timestep=0.05, maximum_timestep=1.0)
 			u = dircol.input()
 			# set some constraints on inputs
+			#import pdb; pdb.set_trace()
 			dircol.AddEqualTimeIntervalsConstraints()
 			
 			#dircol.AddConstraintToAllKnotPoints(u[0] <=  self.delmax)
 			#dircol.AddConstraintToAllKnotPoints(u[0] >= -self.delmax)
 			dircol.AddConstraintToAllKnotPoints(u[0] <=  self.umax)
 			dircol.AddConstraintToAllKnotPoints(u[0] >= -self.umax)
+			# constrain the last input to be zero
+			dv = dircol.decision_variables()
+			final_u_decision_var = dv[self.nX*N + self.nU*N - 1]
+			dircol.AddLinearEqualityConstraint(final_u_decision_var, 0.0)
+			first_u_decision_var = dv[self.nX*N ]
+			dircol.AddLinearEqualityConstraint(first_u_decision_var, 0.0)
 			
 			# set some constraints on start and final pose
 			eps = 0.0 # relaxing factor
@@ -397,13 +404,15 @@ def PendulumPlant_(T):
 			Lambda = Lambda.Substitute(dict(zip(x, x-x0))) # switch to relative state (lambda(xbar)
 			prog.AddSosConstraint(-Vdot + Lambda*(V - rho) - slack*V)
 			prog.AddCost(-slack)
-			#import pdb; pdb.set_trace()
+			import pdb; pdb.set_trace()
 			result = Solve(prog)
 			if(not result.is_success()):
 				print(result.get_solution_result() )
 				print('slack = %f' %(result.GetSolution(slack)) )
 				print('Rho = %f' %(rho))
-				assert result.is_success()
+				#assert result.is_success()
+				return -1.0
+			
 			return result.GetSolution(slack)
 			
 		# Attempts to find the largest funnel, defined by the time-varying
@@ -510,7 +519,7 @@ def PendulumPlant_(T):
 			# Construct a polynomial V that contains all monomials with s,c,thetadot up to degree 2.
 			#deg_V = 2
 			# Construct a polynomial L representing the "Lagrange multiplier".
-			deg_L = 4
+			deg_L = 6
 			Q  = 10.0*np.eye(self.nX)
 			R  = 1.0*np.eye(self.nU)
 			Qf = 1.0*np.eye(self.nX)
@@ -541,15 +550,10 @@ def PendulumPlant_(T):
 			all_Vd=[]
 			all_Vd2=[]
 			all_fcl=[]
-			#fig, ax = plt.subplots()
-			#ax.plot(x[0,:], x[1,:], color='k', linewidth=2)
-			#ax.set_xlim([-2.5, 2.5])
-			#ax.set_ylim([-3, 3])
-			#ax.set_xlabel('x')
-			#ax.set_ylabel('y')
-			#plt.draw()
+
 			zero_map = dict(zip(x,np.zeros(self.nX)))
 			Transformation_metrices = []
+			import pdb; pdb.set_trace()
 			# get the final ROA to be the initial condition (of t=end) of the S from Ricatti)
 			for tf in [times[-1]]:
 				#tf = times[-1]
@@ -573,8 +577,8 @@ def PendulumPlant_(T):
 				# get a polynomial representation of f_closedloop, xdot = f_cl(x)
 				f_cl = self.EvalClosedLoopDynamics(x, ucon, xf, uf, xdf, Kf) # static 0.0*
 				Vfdot = Vf.Jacobian(x).dot(f_cl) # we're just doing the static final point to get Rho_f
-				import pdb; pdb.set_trace()
-				do_balancing = True
+				
+				do_balancing = False #True
 				if(do_balancing):
 					#import pdb; pdb.set_trace()
 					S1 = Evaluate(0.5*Jacobian(Vf.Jacobian(x),x), zero_map)
@@ -598,15 +602,17 @@ def PendulumPlant_(T):
 					
 				#print('Rho_max = %f' %(rhomax))
 				tolerance = 1e-4
+				slack = -1.0
 				while rhomax - rhomin > tolerance:
 					rho_f = (rhomin + rhomax)/2
-					if self.CheckLevelSet(x, xf, Vf, Vfdot, rho_f, multiplier_degree=deg_L) >= 0:
+					slack = self.CheckLevelSet(x, xf, Vf, Vfdot, rho_f, multiplier_degree=deg_L)
+					if  slack >= 0:
 						rhomin = rho_f
 					else:
 						rhomax = rho_f
     
 				rho_f = (rhomin + rhomax)/2
-				print('Rho_final(t=%f) = %f' %(tf, rho_f))
+				print('Rho_final(t=%f) = %f; slack=%f' %(tf, rho_f, slack))
     
 			#import pdb; pdb.set_trace()
 			# end of getting initial conditions
@@ -716,6 +722,26 @@ def runFunnel():
 	utraj, xtraj = plant.runDircol(x0, xf, tf0)
 	print('Trajectory takes %f[sec]' %(utraj.end_time()))
 	print('Done\n******')
+	# resolve the trajectory piecewise polynomial structure
+	N = 100 # number of points to sample
+	times = np.linspace(utraj.start_time(), utraj.end_time(), N)
+	#u_lookup = np.vectorize(utraj.value)
+	#u_values = u_lookup(times)
+	u_values = np.hstack([utraj.value(t) for t in times])
+	xy_knots = np.hstack([xtraj.value(t) for t in times])
+
+	# plotting stuff
+	fig, ax = plt.subplots(2)
+	fig.suptitle('Direct collocation trajectory optimization (%.2f,%.2f)->(%.2f,%.2f)' %\
+				 (x0[0],x0[1],xf[0],xf[1]))
+	ax[0].plot(xy_knots[0, :], xy_knots[1, :])
+	ax[0].set(xlabel='x [m]', ylabel='y [m]')
+	ax[0].grid(True)
+	ax[1].plot(times, u_values[0,:], 'green')
+	ax[1].set(xlabel='t [sec]', ylabel='v [m/s] or omega [rad/sec]')
+	ax[1].grid(True)
+	#plot_sublevelset_expression(ax[2], V)
+	plt.show(block = False)
 	
 	#Af, Bf = plant.PlantDerivatives(xf, (0.0, 1.0) )
 	#Kf, Qf = LinearQuadraticRegulator(Af, Bf, np.eye(3), np.eye(2))
@@ -764,27 +790,7 @@ def runFunnel():
 	#print('V=')
 	#print(V)
 		
-	# resolve the trajectory piecewise polynomial structure
-	N = 100 # number of points to sample
-	times = np.linspace(utraj.start_time(), utraj.end_time(), N)
-	#u_lookup = np.vectorize(utraj.value)
-	#u_values = u_lookup(times)
-	u_values = np.hstack([utraj.value(t) for t in times])
-	xy_knots = np.hstack([xtraj.value(t) for t in times])
 
-	# plotting stuff
-	fig, ax = plt.subplots(3)
-	fig.suptitle('Direct collocation trajectory optimization (%.2f,%.2f,%.2f)->(%.2f,%.2f,%.2f)' %\
-				 (x0[0],x0[1],x0[2],xf[0],xf[1],xf[2]))
-	ax[0].plot(xy_knots[0, :], xy_knots[1, :])
-	ax[0].set(xlabel='x [m]', ylabel='y [m]')
-	ax[0].grid(True)
-	ax[1].plot(times, u_values[0,:], 'green')
-	ax[1].plot(times, u_values[1,:], 'red')
-	ax[1].set(xlabel='t [sec]', ylabel='v [m/s] or omega [rad/sec]')
-	ax[1].grid(True)
-	#plot_sublevelset_expression(ax[2], V)
-	plt.show()
 	
 	
 if __name__ == "__main__":
