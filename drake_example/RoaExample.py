@@ -1,13 +1,14 @@
 import numpy as np
+import math
 import matplotlib.pyplot as plt
 
 from pydrake.examples.van_der_pol import VanDerPolOscillator
 
-x = VanDerPolOscillator.CalcLimitCycle()
+#x = VanDerPolOscillator.CalcLimitCycle()
 
 fig, ax = plt.subplots()
-ax.plot(x[0,:], x[1,:], color='k', linewidth=2)
-ax.set_xlim([-2.5, 2.5])
+#ax.plot(x[0,:], x[1,:], color='k', linewidth=2)
+ax.set_xlim([-2.0*math.pi, 2.0*math.pi])
 ax.set_ylim([-3, 3])
 ax.set_xlabel('q')
 ax.set_ylabel('qdot')
@@ -54,7 +55,7 @@ def FixedLyapunovSearchRho(prog, x, V, Vdot, multiplier_degree=None):
         prog.AddCost(-slack)
 
         result = Solve(prog)
-        assert result.is_success()
+        #assert result.is_success()
         return result.GetSolution(slack)
     
     
@@ -130,7 +131,7 @@ def RegionOfAttraction(system, context, V=None):
     x0 = context.get_continuous_state_vector().CopyToVector()
     # Check that x0 is a fixed point.
     xdot0 = system.EvalTimeDerivatives(context).get_vector().CopyToVector()
-    assert np.allclose(xdot0, 0*xdot0), "context does not describe a fixed point."
+    #assert np.allclose(xdot0, 0*xdot0), "context does not describe a fixed point."
 
     sym_system = system.ToSymbolic()
     sym_context = sym_system.CreateDefaultContext()
@@ -141,18 +142,29 @@ def RegionOfAttraction(system, context, V=None):
     # Evaluate the dynamics (in relative coordinates)
     sym_context.SetContinuousState(x0+x)
     f = sym_system.EvalTimeDerivatives(sym_context).get_vector().CopyToVector()
-    #import pdb; pdb.set_trace()
+    
     if V is None:
         # Solve a Lyapunov equation to find the Lyapunov candidate.
-        A = Evaluate(Jacobian(f, x), dict(zip(x, x0)))
+        #A = Evaluate(Jacobian(f, x), dict(zip(x, x0)))
+        #A = np.array([[0., 1.], [-10.*np.cos(x[0]), -0.1]])
+        #A = A.Evaluate(dict(zip(x, x0)))
+        A = np.array([[0., 1.], [-10.*np.cos(x0[0]), -0.1]])
         Q = np.eye(sym_context.num_continuous_states())
         P = RealContinuousLyapunovEquation(A, Q)
         V = x.dot(P.dot(x))
-        
+    
+	#for i in range(len(f)):
+    #    f[i] = f[i].Substitute(dict(zip(x,x-x0)))
+		
     Vdot = V.Jacobian(x).dot(f)
     
     # Check Hessian of Vdot at origin
-    H = Evaluate(0.5*Jacobian(Vdot.Jacobian(x),x), dict(zip(x, x0)))
+    import pdb; pdb.set_trace()
+    H = Evaluate(0.5*Jacobian(Vdot.Jacobian(x),x), dict(zip(x, 0*x0)))
+    print('H=')
+    print(H)
+    print('P(Lyapunov)=')
+    print(P)
     assert isPositiveDefinite(-H), "Vdot is not negative definite at the fixed point."
 
     #V = FixedLyapunovMaximizeLevelSet(prog, x, V, Vdot)
@@ -169,9 +181,13 @@ from pydrake.all import SymbolicVectorSystem, Variable, plot_sublevelset_express
 mu = 1;
 q = Variable('q')
 qdot = Variable('qdot')
-vdp = SymbolicVectorSystem(state=[q,qdot], dynamics=[-qdot, mu*(q*q - 1)*qdot + q])
+#vdp = SymbolicVectorSystem(state=[q,qdot], dynamics=[-qdot, mu*(q*q - 1)*qdot + q]) # orig
+q0 = math.pi
+#vdp = SymbolicVectorSystem(state=[q,qdot], dynamics=[qdot, -10.0*(q-q0-((q-q0)**3)/6.0+((q-q0)**5)/120.0) - 0.1*qdot]) # pendulum
+vdp = SymbolicVectorSystem(state=[q,qdot], dynamics=[qdot, -10.0*(q-((q)**3)/6.0+((q)**5)/120.0) - 0.1*qdot]) # pendulum
+
 context = vdp.CreateDefaultContext()
-context.SetContinuousState([0, 0])
+context.SetContinuousState([q0, 0])
 
 V = RegionOfAttraction(vdp, context)
 #import pdb; pdb.set_trace()

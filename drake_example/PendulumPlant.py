@@ -307,7 +307,7 @@ def PendulumPlant_(T):
 				for i in range(len(f)):
 					f[i] = f[i].Substitute(fb_map) - x_d_dot[i]
 			
-				f_fb = self.SystemTaylorExpansion(f, x, ucon, x_d, u_d, x_d_dot, order=3)
+				f_fb = self.SystemTaylorExpansion(f, x, ucon, x_d, u_d, x_d_dot, order=5)
 			else:
 				#2) do feedback over the polynomial system
 				f_fb = self.SystemTaylorExpansion(f, x, ucon, x_d, u_d, x_d_dot, order=3)
@@ -404,10 +404,10 @@ def PendulumPlant_(T):
 			Lambda = Lambda.Substitute(dict(zip(x, x-x0))) # switch to relative state (lambda(xbar)
 			prog.AddSosConstraint(-Vdot + Lambda*(V - rho) - slack*V)
 			prog.AddCost(-slack)
-			import pdb; pdb.set_trace()
+			#import pdb; pdb.set_trace()
 			result = Solve(prog)
 			if(not result.is_success()):
-				print(result.get_solution_result() )
+				print('%s, %s' %(result.get_solver_id().name(),result.get_solution_result()) )
 				print('slack = %f' %(result.GetSolution(slack)) )
 				print('Rho = %f' %(rho))
 				#assert result.is_success()
@@ -420,7 +420,7 @@ def PendulumPlant_(T):
 		# sample points in time) initial conditions to end inside the one-level set
 		# of the goal region G at time ts(end).  
 		# from the paper "Invariant Funnels around Trajectories using Sum-of-Squares Programming", Tobenkin et al.
-		def TimeVaryingLyapunovSearchRho(self, prev_x, Vs, Vdots, times, xtraj, utraj, rho_f, multiplier_degree=None):
+		def TimeVaryingLyapunovSearchRho(self, prev_x, Vs, Vdots, Ts, times, xtraj, utraj, rho_f, multiplier_degree=None):
 			C = 4.0
 			#rho_f = 3.0
 			tries = 10
@@ -451,6 +451,8 @@ def PendulumPlant_(T):
 					V = Vs[i].Substitute(dict(zip(prev_x, x)))
 					Vdot = Vdots[i].Substitute(dict(zip(prev_x, x)))
 					x0 = xtraj.value(times[i]).transpose()[0]
+					Ttrans = np.linalg.inv(Ts[i])
+					x0 = Ttrans.dot(x0)
 					#xmin, vmin, vdmin = self.SampleCheck(x, V, Vdot)
 					#if(vdmin > rhodot[i]):
 					#	print('Vdot is greater than rhodot!')
@@ -519,7 +521,7 @@ def PendulumPlant_(T):
 			# Construct a polynomial V that contains all monomials with s,c,thetadot up to degree 2.
 			#deg_V = 2
 			# Construct a polynomial L representing the "Lagrange multiplier".
-			deg_L = 6
+			deg_L = 4
 			Q  = 10.0*np.eye(self.nX)
 			R  = 1.0*np.eye(self.nU)
 			Qf = 1.0*np.eye(self.nX)
@@ -546,14 +548,15 @@ def PendulumPlant_(T):
 			#f = sym_system.EvalTimeDerivativesTaylor(sym_context).CopyToVector() 
 						
 			times = xtraj.get_segment_times()
-			all_V = []
-			all_Vd=[]
-			all_Vd2=[]
-			all_fcl=[]
+			all_V = [] #might be transformed
+			all_Vd=[] #might be transformed
+			all_Vd2=[] 
+			all_fcl=[] #might be transformed
+			all_T=[] #might be transformed
+			all_x0=[] #might be transformed
 
 			zero_map = dict(zip(x,np.zeros(self.nX)))
-			Transformation_metrices = []
-			import pdb; pdb.set_trace()
+			#import pdb; pdb.set_trace()
 			# get the final ROA to be the initial condition (of t=end) of the S from Ricatti)
 			for tf in [times[-1]]:
 				#tf = times[-1]
@@ -578,19 +581,19 @@ def PendulumPlant_(T):
 				f_cl = self.EvalClosedLoopDynamics(x, ucon, xf, uf, xdf, Kf) # static 0.0*
 				Vfdot = Vf.Jacobian(x).dot(f_cl) # we're just doing the static final point to get Rho_f
 				
-				do_balancing = False #True
+				do_balancing = True #False
 				if(do_balancing):
 					#import pdb; pdb.set_trace()
 					S1 = Evaluate(0.5*Jacobian(Vf.Jacobian(x),x), zero_map)
 					S2 = Evaluate(0.5*Jacobian(Vfdot.Jacobian(x),x), zero_map)
 					T = self.balanceQuadraticForm(S1, S2)
-					Transformation_metrices.append(T)
 					balanced_x = T.dot(x)
 					balance_map = dict(zip(x, balanced_x))
 					Vf = Vf.Substitute(balance_map)
 					Vfdot = Vfdot.Substitute(balance_map)
 					for i in range(len(f_cl)):
 						f_cl[i] = f_cl[i].Substitute(balance_map)
+					xf = np.linalg.inv(T).dot(xf) #the new coordinates of the equilibrium point
 
 				rhomin = 0.0
 				rhomax = 1.0
@@ -613,7 +616,8 @@ def PendulumPlant_(T):
     
 				rho_f = (rhomin + rhomax)/2
 				print('Rho_final(t=%f) = %f; slack=%f' %(tf, rho_f, slack))
-    
+				#import pdb; pdb.set_trace()
+			    
 			#import pdb; pdb.set_trace()
 			# end of getting initial conditions
 			if V is None:
@@ -642,10 +646,10 @@ def PendulumPlant_(T):
 					V = (x-x0).transpose().dot(S0.dot((x-x0)))
 					# normalization of the lyapunov function
 					coeffs = Polynomial(V).monomial_to_coefficient_map().values()
-					sumV = 0.
-					for coeff in coeffs:
-						sumV = sumV + np.abs(coeff.Evaluate())
-					V = V / sumV  #normalize coefficient sum to one
+					#sumV = 0.
+					#for coeff in coeffs:
+					#	sumV = sumV + np.abs(coeff.Evaluate())
+					#V = V / sumV  #normalize coefficient sum to one
 					# get a polynomial representation of f_closedloop, xdot = f_cl(x)
 					f_cl = self.EvalClosedLoopDynamics(x, ucon, x0, u0, xd0, K0)
 					#import pdb; pdb.set_trace()
@@ -653,19 +657,37 @@ def PendulumPlant_(T):
 					#Vdot = (x.transpose().dot(S0d)).dot(x) + V.Jacobian(x).dot(f_cl(xbar)) 
 					Vdot = ((x-x0).transpose().dot(S0d)).dot((x-x0)) + V.Jacobian(x).dot(f_cl-xd0) 
 					#deg_L = np.max([Polynomial(Vdot).TotalDegree(), deg_L])
+					if(do_balancing):
+						#import pdb; pdb.set_trace()
+						S1 = Evaluate(0.5*Jacobian(V.Jacobian(x),x), zero_map)
+						S2 = Evaluate(0.5*Jacobian(Vdot.Jacobian(x),x), zero_map)
+						T = self.balanceQuadraticForm(S1, S2)
+						balanced_x = T.dot(x)
+						balance_map = dict(zip(x, balanced_x))
+						V = V.Substitute(balance_map)
+						Vdot = Vdot.Substitute(balance_map)
+						for i in range(len(f_cl)):
+							f_cl[i] = f_cl[i].Substitute(balance_map)
+						x0 = np.linalg.inv(T).dot(x0) #the new coordinates of the equilibrium point
+					else:
+						T = np.eye(self.nX)
+					
 					# store it for later use
 					all_V.append(V)
 					all_fcl.append(f_cl)
-					all_Vd2.append(Vdot)
+					all_Vd.append(Vdot)
+					all_T.append(T)
+					all_x0.append(x0)
 			
 			for i in range(len(times)-1):
 				xd0 = xdotraj.value(times[i]).transpose()[0]
 				Vdot = (all_V[i+1]-all_V[i])/(times[i+1]-times[i]) + all_V[i].Jacobian(x).dot(all_fcl[i]-xd0) 
-				all_Vd.append(Vdot)
+				all_Vd2.append(Vdot)
 			#import pdb; pdb.set_trace()
 			#rho_f = 1.0
 			# time-varying PolynomialLyapunovFunction who's one-level set defines the verified invariant region
-			V = self.TimeVaryingLyapunovSearchRho(x, all_V, all_Vd, times, xtraj, utraj, rho_f, multiplier_degree=deg_L)
+			V = self.TimeVaryingLyapunovSearchRho(x, all_V, all_Vd, all_T, times, xtraj, utraj, rho_f, \
+												  multiplier_degree=deg_L)
 			# Check Hessian of Vdot at origin
 			#H = Evaluate(0.5*Jacobian(Vdot.Jacobian(x),x), dict(zip(x, x0)))
 			#assert isPositiveDefinite(-H), "Vdot is not negative definite at the fixed point."
