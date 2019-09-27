@@ -63,7 +63,7 @@ def PendulumPlant_(T):
 			derivatives.get_mutable_vector().SetFromVector(qdot)
 		
 		def runDircol(self,x0,xf,tf0):
-			N = 21 #21 # constant
+			N = 42 #21 # constant
 			#N = np.int(tf0 * 10) # "10Hz" / samples per second
 
 			context = self.CreateDefaultContext()
@@ -292,7 +292,7 @@ def PendulumPlant_(T):
 		
 		# evaluate the closed loop dynamics with the LQR feedback controller
 		#  xhdot = f(x0+xh, u0-Kxh)  where xh=x-x0
-		def EvalClosedLoopDynamics(self, x, ucon, x_d, u_d, x_d_dot, K):
+		def EvalClosedLoopDynamics(self, x, ucon, x_d, u_d, x_d_dot, K, order=5):
 			#import pdb; pdb.set_trace()
 		
 			sym_system = self.ToSymbolic()
@@ -307,10 +307,10 @@ def PendulumPlant_(T):
 				for i in range(len(f)):
 					f[i] = f[i].Substitute(fb_map) - x_d_dot[i]
 			
-				f_fb = self.SystemTaylorExpansion(f, x, ucon, x_d, u_d, x_d_dot, order=5)
+				f_fb = self.SystemTaylorExpansion(f, x, ucon, x_d, u_d, x_d_dot, order)
 			else:
 				#2) do feedback over the polynomial system
-				f_fb = self.SystemTaylorExpansion(f, x, ucon, x_d, u_d, x_d_dot, order=3)
+				f_fb = self.SystemTaylorExpansion(f, x, ucon, x_d, u_d, x_d_dot, order)
 				U = u_d - K.dot(x-x_d)  # feedback law
 				fb_map = dict(zip(ucon, U))
 				for i in range(len(f_fb)):
@@ -400,7 +400,8 @@ def PendulumPlant_(T):
 			#Vdot = Vdot/V_norm
 			#prog.AddConstraint(V_norm == 0)
 
-			Lambda = prog.NewSosPolynomial(Variables(x), multiplier_degree)[0].ToExpression()
+			# in relative state (lambda(xbar)
+			Lambda = prog.NewSosPolynomial(Variables(x), multiplier_degree)[0].ToExpression() 
 			Lambda = Lambda.Substitute(dict(zip(x, x-x0))) # switch to relative state (lambda(xbar)
 			prog.AddSosConstraint(-Vdot + Lambda*(V - rho) - slack*V)
 			prog.AddCost(-slack)
@@ -421,7 +422,7 @@ def PendulumPlant_(T):
 		# of the goal region G at time ts(end).  
 		# from the paper "Invariant Funnels around Trajectories using Sum-of-Squares Programming", Tobenkin et al.
 		def TimeVaryingLyapunovSearchRho(self, prev_x, Vs, Vdots, Ts, times, xtraj, utraj, rho_f, multiplier_degree=None):
-			C = 4.0
+			C = 10.0
 			#rho_f = 3.0
 			tries = 10
 			N = len(times)-1
@@ -521,7 +522,7 @@ def PendulumPlant_(T):
 			# Construct a polynomial V that contains all monomials with s,c,thetadot up to degree 2.
 			#deg_V = 2
 			# Construct a polynomial L representing the "Lagrange multiplier".
-			deg_L = 4
+			deg_L = 6
 			Q  = 10.0*np.eye(self.nX)
 			R  = 1.0*np.eye(self.nU)
 			Qf = 1.0*np.eye(self.nX)
@@ -556,7 +557,6 @@ def PendulumPlant_(T):
 			all_x0=[] #might be transformed
 
 			zero_map = dict(zip(x,np.zeros(self.nX)))
-			#import pdb; pdb.set_trace()
 			# get the final ROA to be the initial condition (of t=end) of the S from Ricatti)
 			for tf in [times[-1]]:
 				#tf = times[-1]
@@ -564,24 +564,24 @@ def PendulumPlant_(T):
 				xdf = xdotraj.value(tf).transpose()[0]
 				uf = utraj.value(tf).transpose()[0]
 				Af, Bf = self.PlantDerivatives(xf, uf) #0.0*uf)
-				Kf, Qf = LinearQuadraticRegulator(Af, Bf, Q, R)
+				Kf, __ = LinearQuadraticRegulator(Af, Bf, Q, R)
+				# get a polynomial representation of f_closedloop, xdot = f_cl(x)
+				# where x is actually in rel. coord.
+				f_cl   = self.EvalClosedLoopDynamics(x, ucon, xf, uf, xdf, Kf, order=1) # linearization CL
+				Af     = Evaluate(Jacobian(f_cl, x), zero_map) # because this is rel. coord.
+				Qf 	   = RealContinuousLyapunovEquation(Af, Q)
+				f_cl   = self.EvalClosedLoopDynamics(x, ucon, xf, uf, xdf, Kf, order=5) # for dynamics CL
 				# make sure Lyapunov candidate is pd
 				if (self.isPositiveDefinite(Qf)==False):
 					assert False, '******\nQf is not PD for t=%f\n******' %(tf)
 				Vf = (x-xf).transpose().dot(Qf.dot((x-xf)))
-				# normalization of the lyapunov function
-				"""
-				coeffs = Polynomial(Vf).monomial_to_coefficient_map().values()
-				sumV = 0.
-				for coeff in coeffs:
-					sumV = sumV + np.abs(coeff.Evaluate())
-				Vf = Vf / sumV  #normalize coefficient sum to one
-				"""
-				# get a polynomial representation of f_closedloop, xdot = f_cl(x)
-				f_cl = self.EvalClosedLoopDynamics(x, ucon, xf, uf, xdf, Kf) # static 0.0*
+				#Vf = x.dot(Qf.dot(x)) #here we change variables to relative coord.
 				Vfdot = Vf.Jacobian(x).dot(f_cl) # we're just doing the static final point to get Rho_f
+				#H = Evaluate(0.5*Jacobian(Vfdot.Jacobian(x),x), zero_map)
+				#if (self.isPositiveDefinite(-H)==False):
+				#	assert False, '******\nVdot is not ND at the end point, for t=%f\n******' %(tf)
 				
-				do_balancing = True #False
+				do_balancing = False # True 
 				if(do_balancing):
 					#import pdb; pdb.set_trace()
 					S1 = Evaluate(0.5*Jacobian(Vf.Jacobian(x),x), zero_map)
@@ -598,6 +598,7 @@ def PendulumPlant_(T):
 				rhomin = 0.0
 				rhomax = 1.0
 				
+				#import pdb; pdb.set_trace()
 			    # First bracket the solution
 				while self.CheckLevelSet(x, xf, Vf, Vfdot, rhomax, multiplier_degree=deg_L) > 0:
 					rhomin = rhomax
@@ -615,6 +616,7 @@ def PendulumPlant_(T):
 						rhomax = rho_f
     
 				rho_f = (rhomin + rhomax)/2
+				rho_f = rho_f*0.8
 				print('Rho_final(t=%f) = %f; slack=%f' %(tf, rho_f, slack))
 				#import pdb; pdb.set_trace()
 			    
@@ -645,17 +647,17 @@ def PendulumPlant_(T):
 					#V = x.dot(S0.dot(x))
 					V = (x-x0).transpose().dot(S0.dot((x-x0)))
 					# normalization of the lyapunov function
-					coeffs = Polynomial(V).monomial_to_coefficient_map().values()
+					#coeffs = Polynomial(V).monomial_to_coefficient_map().values()
 					#sumV = 0.
 					#for coeff in coeffs:
 					#	sumV = sumV + np.abs(coeff.Evaluate())
 					#V = V / sumV  #normalize coefficient sum to one
 					# get a polynomial representation of f_closedloop, xdot = f_cl(x)
-					f_cl = self.EvalClosedLoopDynamics(x, ucon, x0, u0, xd0, K0)
+					f_cl = self.EvalClosedLoopDynamics(x, ucon, x0, u0, xd0, K0, order=3)
 					#import pdb; pdb.set_trace()
 					# vdot = x'*Sdot*x + dV/dx*fcl_poly
 					#Vdot = (x.transpose().dot(S0d)).dot(x) + V.Jacobian(x).dot(f_cl(xbar)) 
-					Vdot = ((x-x0).transpose().dot(S0d)).dot((x-x0)) + V.Jacobian(x).dot(f_cl-xd0) 
+					Vdot = ((x-x0).transpose().dot(S0d)).dot((x-x0)) + V.Jacobian(x).dot(f_cl) 
 					#deg_L = np.max([Polynomial(Vdot).TotalDegree(), deg_L])
 					if(do_balancing):
 						#import pdb; pdb.set_trace()
@@ -681,7 +683,7 @@ def PendulumPlant_(T):
 			
 			for i in range(len(times)-1):
 				xd0 = xdotraj.value(times[i]).transpose()[0]
-				Vdot = (all_V[i+1]-all_V[i])/(times[i+1]-times[i]) + all_V[i].Jacobian(x).dot(all_fcl[i]-xd0) 
+				Vdot = (all_V[i+1]-all_V[i])/(times[i+1]-times[i]) + all_V[i].Jacobian(x).dot(all_fcl[i]) 
 				all_Vd2.append(Vdot)
 			#import pdb; pdb.set_trace()
 			#rho_f = 1.0
