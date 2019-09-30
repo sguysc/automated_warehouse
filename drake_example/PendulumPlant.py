@@ -88,7 +88,8 @@ def PendulumPlant_(T):
 			# set some constraints on start and final pose
 			eps = 0.0 # relaxing factor
 			dircol.AddBoundingBoxConstraint(x0, x0, dircol.initial_state())
-			dircol.AddBoundingBoxConstraint(xf-np.array([eps, eps]), xf+np.array([eps, eps]), dircol.final_state())
+			dircol.AddBoundingBoxConstraint(xf-np.array([eps, eps]), \
+											xf+np.array([eps, eps]), dircol.final_state())
 
 			R = 1.0*np.eye(self.nU)  # Cost on input "effort".
 			dircol.AddRunningCost( u.transpose().dot(R.dot(u)) ) 
@@ -132,6 +133,22 @@ def PendulumPlant_(T):
 			Sdot = np.concatenate((S1dot.ravel(),S2dot.ravel(),S3dot[0]))
 			return Sdot # return as vector
 		
+		# Continuous Differential Riccati Equation for the closed loop (solved reverse in time)
+		def Cdre_CL(self, t, S, Q, Rinv, xtraj, utraj, x, ucon, K):
+			x0 = xtraj.value(t).transpose()[0]
+			u0 = utraj.value(t).transpose()[0]
+			x0d = xtraj.derivative(1).value(t).transpose()[0]
+			Kf = K.value(t).reshape(self.nU, self.nX)
+						
+			zero_map = dict(zip(x,np.zeros(self.nX)))
+			f_Lcl    = self.EvalClosedLoopDynamics(x, ucon, x0, u0, x0d, Kf, order=1) # linearization CL
+			Af       = Evaluate(Jacobian(f_Lcl, x), zero_map) # because this is rel. coord.
+					
+			s1 = S.reshape(self.nX, self.nX) # comes in as vector, switch to matrix
+			S1dot = -(Af.transpose().dot(s1) + s1.dot(Af) + Q)
+
+			return S1dot.ravel() # return as vector
+		
 		def PlantDerivatives(self, x, u):
 			# this was done manually for now (speed in mind, but never actually checked that symbolically is slow),
 			# but basically could also be automatically derived using symbolic system
@@ -142,28 +159,28 @@ def PendulumPlant_(T):
 			return A, B
 		#
 		def TVLQR(self, xtraj, utraj, Q, R, Qf):
-			context = self.CreateDefaultContext()
-			sym_system = self.ToSymbolic()
-			sym_context = sym_system.CreateDefaultContext()
+			#context = self.CreateDefaultContext()
+			#sym_system = self.ToSymbolic()
+			#sym_context = sym_system.CreateDefaultContext()
 			
-			prog = MathematicalProgram()
-			x = prog.NewIndeterminates(self.nX,'x')
-			ucon = prog.NewIndeterminates(self.nU,'u')
+			#prog = MathematicalProgram()
+			#x = prog.NewIndeterminates(self.nX,'x')
+			#ucon = prog.NewIndeterminates(self.nU,'u')
 			
 			times = xtraj.get_segment_times()
-			t = times[-1]
-
+			
 			# final state goal
+			t = times[-1]
 			x0 = xtraj.value(t).transpose()[0]
 			u0 = utraj.value(t).transpose()[0]
 
-			sym_context.SetContinuousState(x) #x0+
-			sym_context.FixInputPort(0, ucon ) #u0+
+			#sym_context.SetContinuousState(x) #x0+
+			#sym_context.FixInputPort(0, ucon ) #u0+
 			
 			# xdot=f(x,u)==>xhdot=f(xh+x0,uh+u0)-x0dot ~= df/dx*xh + df/du*uh
-			f = sym_system.EvalTimeDerivatives(sym_context).CopyToVector() 
-			mapping = dict(zip(x, x0))
-			mapping.update(dict(zip(ucon, u0)))
+			#f = sym_system.EvalTimeDerivatives(sym_context).CopyToVector() 
+			#mapping = dict(zip(x, x0))
+			#mapping.update(dict(zip(ucon, u0)))
 			# get the final condition, according to Tedrake10' Qf should be last S(LTI)
 			#A_sim = Jacobian(f, x)
 			#B_sim = Jacobian(f, ucon)
@@ -176,29 +193,45 @@ def PendulumPlant_(T):
 			#S(3x3),s1(3,1),s2(1x1)
 			#S0 = np.array(Qf.ravel().tolist()+[0.0,0.0,0.0,0.0])
 			S0 = Qf.ravel()
+			#import pdb; pdb.set_trace()
 			sol = solve_ivp(lambda t,S: self.Cdre(t,S,Q,Rinv,xtraj,utraj), \
 							[times[-1], times[0]], S0, t_eval=times[::-1])
 			K = []
 			S = []
+			#S_debug = []
 			Ssol = np.fliplr(sol.y)  # flip is because we switch back to normal time progress
 			for i in range(sol.y.shape[1]):
 				x0 = xtraj.value(times[i]).transpose()[0]
 				u0 = utraj.value(times[i]).transpose()[0]
 				A, B = self.PlantDerivatives(x0, u0)
-				#import pdb; pdb.set_trace()
-				#s = Ssol[0:self.nX*self.nX,i].reshape(Qf.shape)
-				#s2 = Ssol[self.nX*self.nX:12,i].reshape(self.nx,1)
-				#s3 = Ssol[-1,i].reshape(1)
+				
 				s = Ssol[:,i].reshape(Qf.shape)
 				k = Rinv.dot(B.transpose()).dot(s)
 				if(len(K) == 0):
 					K = np.ravel(k).reshape(self.nX*self.nU,1) 
-					S = np.ravel(s).reshape(self.nX*self.nX,1) 
+					#S_debug = np.ravel(s).reshape(self.nX*self.nX,1) 
 				else:
 					K = np.hstack( (K, np.ravel(k).reshape(self.nX*self.nU,1)) )
-					S = np.hstack( (S, np.ravel(s).reshape(self.nX*self.nX,1)) )
+					#S_debug = np.hstack( (S_debug, np.ravel(s).reshape(self.nX*self.nX,1)) )
 			
 			Kpp = PiecewisePolynomial.FirstOrderHold(times, K)
+			#Spp_debug = PiecewisePolynomial.FirstOrderHold(times, S_debug)
+			
+			# now that it's an autonomous system, get the Lyapunov function		
+			prog = MathematicalProgram()
+			x = prog.NewIndeterminates(self.nX, 'x')
+			ucon = prog.NewIndeterminates(self.nU, 'u')
+			
+			sol = solve_ivp(lambda t,S: self.Cdre_CL(t,S,Q,Rinv,xtraj,utraj,x,ucon,Kpp), \
+							[times[-1], times[0]], S0, t_eval=times[::-1])
+			Ssol = np.fliplr(sol.y)  # flip is because we switch back to normal time progress
+			for i in range(sol.y.shape[1]):
+				s = Ssol[:,i].reshape(Qf.shape)
+				if(len(S) == 0):
+					S = np.ravel(s).reshape(self.nX*self.nX,1) 
+				else:
+					S = np.hstack( (S, np.ravel(s).reshape(self.nX*self.nX,1)) )	
+				
 			Spp = PiecewisePolynomial.FirstOrderHold(times, S)
 			#import pdb; pdb.set_trace()
 			return Kpp,Spp
@@ -218,43 +251,7 @@ def PendulumPlant_(T):
 						
 			y.SetFromVector(qdot)
 			return y
-		
-		# get the polynomial representation of the system using Taylor expansion on each non-polynomial expression
-		# this was done manually and on the trigonometric expressions only
-		"""
-		def EvalTimeDerivativesTaylor(self, context):
-			y = context.get_continuous_state_vector().Clone()
-			x = context.get_continuous_state_vector().CopyToVector()
-			
-			u = self.GetInputPort('u').EvalBasicVector(context).CopyToVector()
-			theta = x[2]
-			
-			qdot = np.array([u[1]*self.taylor_cos(theta), \
-							 u[1]*self.taylor_sin(theta), \
-							 u[1]*self.taylor_tan(u[0])/self.L]) #
-
-			y.SetFromVector(qdot)
-			return y
-		
-		
-		# expansion of the trigonometric functions to whatever order we want
-		def taylor_cos(self, x, x0):
-			#return (1.0 - (x**2)/2.0 + (x**4)/24.0)
-			return ( np.cos(x0) - np.sin(x0)*(x-x0) - (np.cos(x0)*(x-x0)**2)/2.0 \
-				     + (np.sin(x0)*(x-x0)**3)/6.0 + (np.cos(x0)*(x-x0)**4)/24.0 ) 
-		
-		def taylor_sin(self, x, x0):
-			#return (x - (x**3)/6.0)  # + (x**5)/120.0)
-			return ( np.sin(x0) + np.cos(x0)*(x-x0) - (np.sin(x0)*(x-x0)**2)/2.0 \
-					- (np.cos(x0)*(x-x0)**3)/6.0  ) 
-		
-		def taylor_tan(self, x, x0):
-			#return (x + (x**3)/3.0) # + (2*x**5)/15.0  )
-			return ( np.tan(x0) + (np.tan(x0)**2+1.0)*(x-x0) + \
-				     ((2.0*np.tan(x0)*(np.tan(x0)**2 + 1.0))*(x-x0)**2)/2.0  + \
-				     ((2.0*(np.tan(x0)**2 + 1)**2 + (4.0*np.tan(x0)**2)*(np.tan(x0)**2 + 1.0))*(x-x0)**3)/6.0 )
-		"""
-		
+				
 		def SystemTaylorExpansion(self, f, xstate, ucon, x0state, u0, x0dot, order=3):
 			# get polynomial dynamics around (xd,ud)
 			#import pdb; pdb.set_trace()
@@ -421,8 +418,9 @@ def PendulumPlant_(T):
 		# sample points in time) initial conditions to end inside the one-level set
 		# of the goal region G at time ts(end).  
 		# from the paper "Invariant Funnels around Trajectories using Sum-of-Squares Programming", Tobenkin et al.
-		def TimeVaryingLyapunovSearchRho(self, prev_x, Vs, Vdots, Ts, times, xtraj, utraj, rho_f, multiplier_degree=None):
-			C = 10.0
+		def TimeVaryingLyapunovSearchRho(self, prev_x, Vs, Vdots, Ts, times, xtraj, utraj, \
+										 rho_f, multiplier_degree=None):
+			C = 8.0
 			#rho_f = 3.0
 			tries = 10
 			N = len(times)-1
@@ -434,10 +432,17 @@ def PendulumPlant_(T):
 			#rho = 1.0e-3*np.linspace(16.0, 5.0, N+1)
 			#rho = 0.0*np.linspace(16.0, 5.0, N+1)
 			#rho = 1e-5*np.linspace(5.0, 10.0, N+1)
-			
+			fig, ax = plt.subplots()
+			fig.suptitle('Rho progression')
+			ax.set(xlabel='index', ylabel='rho')
+			ax.grid(True)
+			plt.show(block = False)
+			need_to_break = False
 			for idx in range(tries):
 				print('starting iteration #%d with rho=' %(idx))
 				print(rho)
+				ax.plot(rho)
+				plt.pause(0.05)
 				# start of number of iterations if we want
 				rhodot = np.diff(rho)/dt
 				# sampleCheck()
@@ -474,10 +479,9 @@ def PendulumPlant_(T):
 					slack = result.GetSolution(gamma)
 					print('Slack #%d = %f' %(idx, slack))
 					x_vec.append(x)
-					#if(slack < 1E-4):
-					#	print('Something is not great with searching for Lambda[%d]=%f :(' %(i, slack))
-					#	assert (slack > 0.0001)
-				
+					if(slack < 0.0):
+						need_to_break = True
+					
 				# fix Lagrange multipliers, maximize rho
 				rhointegral = 0.0
 				prog = MathematicalProgram()
@@ -495,7 +499,7 @@ def PendulumPlant_(T):
 
 					V    = Vs[i].Substitute(dict(zip(prev_x, xx)))
 					Vdot = Vdots[i].Substitute(dict(zip(prev_x, xx)))
-					x0   = xtraj.value(times[i]).transpose()[0]
+					#x0   = xtraj.value(times[i]).transpose()[0]
 					L1   = Lambda_vec[i].Substitute(dict(zip(x_vec[i], xx)))
 					#Vdot = Vdot*rho_x[i] - V*rhod_x
 					prog.AddSosConstraint( -(Vdot - rhod_x + L1 * ( rho_x[i]-V ) ) )
@@ -508,15 +512,19 @@ def PendulumPlant_(T):
 				for r in rhos:
 					rho.append(r[0].Evaluate())
 				rhointegral = result.GetSolution(rhointegral).Evaluate()
-				#import pdb; pdb.set_trace()
 				print('End of iteration #%d: rhointegral=%f' %(idx, rhointegral))
+				if(need_to_break == True):
+					print('In iter#%d, found negative slack so ending prematurely... :(' %(idx))
+					break;
+				
 				# end of iterations if we want
 			
-			print('done computing funnel.\nrho= ')
+			print('done computing funnel.\nFinal rho= ')
 			print(rho)
-			
-			V = 1.0/rho * Vs
-			return V
+			import pdb; pdb.set_trace()
+			for i in range(len(rho)):
+				Vs[i] = Vs[i]/rho[i]
+			return Vs
 		
 		def RegionOfAttraction(self, xtraj, utraj, V=None):
 			# Construct a polynomial V that contains all monomials with s,c,thetadot up to degree 2.
@@ -567,8 +575,8 @@ def PendulumPlant_(T):
 				Kf, __ = LinearQuadraticRegulator(Af, Bf, Q, R)
 				# get a polynomial representation of f_closedloop, xdot = f_cl(x)
 				# where x is actually in rel. coord.
-				f_cl   = self.EvalClosedLoopDynamics(x, ucon, xf, uf, xdf, Kf, order=1) # linearization CL
-				Af     = Evaluate(Jacobian(f_cl, x), zero_map) # because this is rel. coord.
+				f_Lcl   = self.EvalClosedLoopDynamics(x, ucon, xf, uf, xdf, Kf, order=1) # linearization CL
+				Af     = Evaluate(Jacobian(f_Lcl, x), zero_map) # because this is rel. coord.
 				Qf 	   = RealContinuousLyapunovEquation(Af, Q)
 				f_cl   = self.EvalClosedLoopDynamics(x, ucon, xf, uf, xdf, Kf, order=5) # for dynamics CL
 				# make sure Lyapunov candidate is pd
@@ -581,7 +589,7 @@ def PendulumPlant_(T):
 				#if (self.isPositiveDefinite(-H)==False):
 				#	assert False, '******\nVdot is not ND at the end point, for t=%f\n******' %(tf)
 				
-				do_balancing = False # True 
+				do_balancing =  False #True
 				if(do_balancing):
 					#import pdb; pdb.set_trace()
 					S1 = Evaluate(0.5*Jacobian(Vf.Jacobian(x),x), zero_map)
@@ -616,7 +624,7 @@ def PendulumPlant_(T):
 						rhomax = rho_f
     
 				rho_f = (rhomin + rhomax)/2
-				rho_f = rho_f*0.8
+				rho_f = rho_f*0.8 # just to be on the safe-side. REMOVE WHEN WORKING
 				print('Rho_final(t=%f) = %f; slack=%f' %(tf, rho_f, slack))
 				#import pdb; pdb.set_trace()
 			    
@@ -695,7 +703,7 @@ def PendulumPlant_(T):
 			#assert isPositiveDefinite(-H), "Vdot is not negative definite at the fixed point."
 			return V
 		
-		def my_plot_sublevelset_expression(self, ax, e, x0, vertices=51, **kwargs):
+		def my_plot_sublevelset_expression(self, ax, e, x0, vertices=51): #, **kwargs):
 			p = Polynomial(e)
 			assert p.TotalDegree() == 2
 
@@ -726,7 +734,7 @@ def PendulumPlant_(T):
 			L = np.linalg.cholesky(H)
 			X = np.tile(xmin, vertices) + np.linalg.inv(np.transpose(L)).dot(Y)
 
-			return ax.fill(X[0, :]+x0[0], X[1, :]+x0[1], **kwargs)
+			return ax.fill(X[0, :]+x0[0], X[1, :]+x0[1], "b")
 			#return plot_sublevelset_quadratic(ax, A, b, c, vertices, **kwargs)
 
 	return Impl
@@ -753,7 +761,7 @@ def runFunnel():
 	#u_values = u_lookup(times)
 	u_values = np.hstack([utraj.value(t) for t in times])
 	xy_knots = np.hstack([xtraj.value(t) for t in times])
-
+	#import pdb; pdb.set_trace()
 	# plotting stuff
 	fig, ax = plt.subplots(2)
 	fig.suptitle('Direct collocation trajectory optimization (%.2f,%.2f)->(%.2f,%.2f)' %\
@@ -807,13 +815,23 @@ def runFunnel():
 	#sym_context.FixInputPort(0, ucon )
 	#f = sym_system.EvalTimeDerivatives(sym_context).CopyToVector() 
 	#f_poly = plant.SystemTaylorExpansion(f, x, ucon, xf, u0, np.zeros((2,1)), order=3)
-	#import pdb; pdb.set_trace()
 	# region of attraction:
 	#context = plant.CreateDefaultContext()
 	V = plant.RegionOfAttraction(xtraj, utraj)
-	#print('V=')
-	#print(V)
-		
+	
+	fig1, ax1 = plt.subplots()
+	ax1.set_xlim([-2.0*math.pi, 2.0*math.pi])
+	ax1.set_ylim([-3, 3])
+	ax1.set_xlabel('theta')
+	ax1.set_ylabel('thetadot')
+
+	times = xtraj.get_segment_times()
+	for i in range(len(times)):
+		x0 = xtraj.value(times[i]).transpose()[0]
+		plant.my_plot_sublevelset_expression(ax1, V[i], x0)
+		plt.pause(0.05)
+		#import pdb; pdb.set_trace()
+	plt.show(block = True)	
 
 	
 	
