@@ -18,18 +18,19 @@ from pydrake.solvers.mosek import MosekSolver
 # to solve the differential ricatti eqn
 from scipy.integrate import solve_ivp
 
-@TemplateSystem.define("DubinsCarPlant_")
-def DubinsCarPlant_(T):
+# forklift model with rear driving-steering  wheel
+@TemplateSystem.define("ForkLiftPlant_")
+def ForkLiftPlant_(T):
 	class Impl(LeafSystem_[T]):
 		def _construct(self, converter=None):
 			# car model:
 			# ==========
-			# X = [x y theta]';    U = [delta v]'   [steer ang, fwd vel]'
-			# xdot = v*cos(teta)
-			# ydot = v*sin(teta)
+			# X = [x y theta alfa]';    U = [v omega]'   [fwd vel,  steer ang vel]'
+			# xdot = v*cos(teta)*cos(alfa)
+			# ydot = v*sin(teta)*cos(alfa)
 			# tetadot = v/L * tan( delta )
 			LeafSystem_[T].__init__(self, converter)
-			self.nX = 3
+			self.nX = 4
 			self.nU = 2
 			# two inputs (delta steering angle, u forward velocity)
 			self.DeclareVectorInputPort("u", BasicVector_[T](self.nU))
@@ -41,13 +42,14 @@ def DubinsCarPlant_(T):
 
 			# parameters and limits from 
 			# "Tow tractor and Center rider Vehicle Limits Rev1.docx"
-			self.L = 1.0 #length of car, for a 36inch length fork
+			self.L = 2.0 #length of car (dimension C), for a 36inch length fork
 			self.umax =  2.6 * 1.6 * 1000.0 / 3600.0  # mph -> m/sec     5.0
-			self.delmax =  80.0*math.pi/180.0  #rad   30.0
+			self.alfamax =  80.0*math.pi/180.0  #rad   30.0
 			# acceleration
 			#Vehicle acceleration, unloaded 0.8 m/s2
 			#Vehicle deceleration, unloaded 1.6 m/s2
 			#Steer slew rate 60 deg / sec 
+			self.slewmax =  60.0*math.pi/180.0  #rad  
 
 		def _construct_copy(self, other, converter=None):
 			Impl._construct(self, converter=converter)
@@ -56,61 +58,57 @@ def DubinsCarPlant_(T):
 			x = context.get_continuous_state_vector().CopyToVector()
 			output.SetFromVector(x) # = y 
 
-		# X = [x y theta]';    U = [delta v]'   [steer ang, fwd vel]'
+		# X = [x y theta alfa]';    U = [v omega]'   [fwd vel, steer ang vel]'
 		def DoCalcTimeDerivatives(self, context, derivatives):
 			x = context.get_continuous_state_vector().CopyToVector()
 			u = self.EvalVectorInput(context, 0).CopyToVector()
 			theta = x[2]
+			alfa  = x[3]
 			
-			qdot = np.array([ u[1]*np.cos(theta), \
-							  u[1]*np.sin(theta), \
-							  u[1]*np.tan(u[0])/self.L ])
+			qdot = np.array([ u[0]*np.cos(theta)*np.cos(alfa), \
+							  u[0]*np.sin(theta)*np.cos(alfa), \
+							  u[0]*np.sin(alfa)/self.L, \
+							  u[1]])
 			derivatives.get_mutable_vector().SetFromVector(qdot)
 					
 		def runDircol(self,x0,xf,tf0):
-			
-			distance = np.linalg.norm(np.array(xf)-np.array(x0))
-			est_time_to_travel = distance/self.umax
-			#N = np.int(est_time_to_travel * self.umax + 1.) # "1Hz" / samples per second
-			#import pdb; pdb.set_trace() #(xf-x0)
-			#N = 5#8 # constant
+			N = 15 # constant
 			#N = np.int(tf0 * 10) # "10Hz" / samples per second
-			N = 12
-			#print('N=%d' %(N) )
+			
 			context = self.CreateDefaultContext()
 			dircol  = DirectCollocation(self, context, num_time_samples=N,
-							   minimum_timestep=0.05, maximum_timestep=2.0)
+							   minimum_timestep=0.05, maximum_timestep=1.0)
 			u = dircol.input()
 			# set some constraints on inputs
-			#import pdb; pdb.set_trace()
 			dircol.AddEqualTimeIntervalsConstraints()
 			
-			dircol.AddConstraintToAllKnotPoints(u[0] <=  self.delmax)
-			dircol.AddConstraintToAllKnotPoints(u[0] >= -self.delmax)
-			dircol.AddConstraintToAllKnotPoints(u[1] <=  self.umax)
-			dircol.AddConstraintToAllKnotPoints(u[1] >= -0.*self.umax)
+			dircol.AddConstraintToAllKnotPoints(u[1] <=  self.slewmax)
+			dircol.AddConstraintToAllKnotPoints(u[1] >= -self.slewmax)
+			dircol.AddConstraintToAllKnotPoints(u[0] <=  self.umax)
+			dircol.AddConstraintToAllKnotPoints(u[0] >= -self.umax)
 			
 			# constrain the last input to be zero (at least for the u input)
-			#dv = dircol.decision_variables()
+			#import pdb; pdb.set_trace()
+			dv = dircol.decision_variables()
+			for i in range(3, self.nX*N, 4):
+				alfa_state = dv[i] #u[t_end]
+				dircol.AddBoundingBoxConstraint(-self.alfamax, self.alfamax, alfa_state)
 			#final_u_decision_var = dv[self.nX*N + self.nU*N - 1] #u[t_end]
 			#dircol.AddLinearEqualityConstraint(final_u_decision_var, 0.0)
 			#first_u_decision_var = dv[self.nX*N + 1 ] #u[t_0]
 			#dircol.AddLinearEqualityConstraint(first_u_decision_var, 0.0)
 			
 			# set some constraints on start and final pose
-			eps = .1 * np.ones(self.nX) # relaxing factor  np.array([0.0, 0.0, 0.0])
-			#eps[-1] = 0.0
-			#eps = np.array([0.0, 0.0, 0.0])
+			eps = 0.0 * np.ones(self.nX) # relaxing factor
 			dircol.AddBoundingBoxConstraint(x0, x0, dircol.initial_state())
 			dircol.AddBoundingBoxConstraint(xf-eps, \
 											xf+eps, dircol.final_state())
 
-			#R = 1.0*np.eye(self.nU)  # Cost on input "effort".
-			R = np.diag((20., 1.))  # More cost on input of steering angle "effort" to make it curvey.
+			R = 1.0*np.eye(self.nU)  # Cost on input "effort".
 			dircol.AddRunningCost( u.transpose().dot(R.dot(u)) ) 
 
 			# Add a final cost equal to the total duration.
-			dircol.AddFinalCost(dircol.time()/10.0)
+			dircol.AddFinalCost(dircol.time())
 
 			# guess initial trajectory
 			initial_x_trajectory = \
@@ -122,9 +120,7 @@ def DubinsCarPlant_(T):
 			print('******\nRunning trajectory optimization:')
 			print('w/ solver %s' %(result.get_solver_id().name()))
 			print(result.get_solution_result())
-			if(result.is_success() == False):
-				import pdb; pdb.set_trace()
-				assert(result.is_success())
+			assert(result.is_success())
 
 			xtraj = dircol.ReconstructStateTrajectory(result)
 			utraj = dircol.ReconstructInputTrajectory(result)
@@ -169,12 +165,14 @@ def DubinsCarPlant_(T):
 		def PlantDerivatives(self, x, u):
 			# this was done manually for now (speed in mind, but never actually checked that symbolically is slow),
 			# but basically could also be automatically derived using symbolic system
-			A = np.array([[0., 0., -u[1]*np.sin(x[2])], \
-         	     		  [0., 0.,  u[1]*np.cos(x[2])], \
-         		 		  [0., 0., 0.]])
-			B = np.array([[0., np.cos(x[2])], \
-         		 		  [0., np.sin(x[2])], \
-         		 		  [u[1]*(1+np.tan(u[0])**2)/self.L, np.tan(u[0])/self.L ]])
+			A = np.array([[0., 0., -u[0]*np.sin(x[2])*np.cos(x[3]), -u[0]*np.cos(x[2])*np.sin(x[3])], \
+         	     		  [0., 0.,  u[0]*np.cos(x[2])*np.cos(x[3]), -u[0]*np.sin(x[2])*np.sin(x[3])], \
+         		 		  [0., 0.,  0.,                              u[0]*np.cos(x[3])/self.L ], \
+						  [0., 0.,  0.,                              1.0]])
+			B = np.array([[np.cos(x[2])*np.cos(x[3]), 0.], \
+         		 		  [np.sin(x[2])*np.cos(x[3]), 0.], \
+         		 		  [np.sin(x[3])/self.L,       0.], \
+						  [0.,                        1.]])
 			return A, B
 		#
 		def TVLQR(self, xtraj, utraj, Q, R, Qf):
@@ -237,6 +235,7 @@ def DubinsCarPlant_(T):
 			Spp_debug = PiecewisePolynomial.FirstOrderHold(times, S_debug)
 			
 			# now that it's an autonomous system, get the Lyapunov function		
+			'''
 			prog = MathematicalProgram()
 			x = prog.NewIndeterminates(self.nX, 'x')
 			ucon = prog.NewIndeterminates(self.nU, 'u')
@@ -252,6 +251,7 @@ def DubinsCarPlant_(T):
 					S = np.hstack( (S, np.ravel(s).reshape(self.nX*self.nX,1)) )	
 				
 			Spp = PiecewisePolynomial.FirstOrderHold(times, S)
+			'''
 			#import pdb; pdb.set_trace()
 			return Kpp,Spp_debug #Spp
 		
@@ -263,10 +263,12 @@ def DubinsCarPlant_(T):
 			u = self.GetInputPort('u').EvalBasicVector(context).CopyToVector()
 			
 			theta = x[2]
+			alfa  = x[3]
 			
-			qdot = np.array([u[1]*np.cos(theta), \
-							 u[1]*np.sin(theta), \
-							 u[1]*np.tan(u[0])/self.L]) #
+			qdot = np.array([u[0]*np.cos(theta)*np.cos(alfa), \
+							 u[0]*np.sin(theta)*np.cos(alfa), \
+							 u[0]*np.sin(alfa)/self.L, \
+							 u[1]]) #
 						
 			y.SetFromVector(qdot)
 			return y
@@ -438,7 +440,7 @@ def DubinsCarPlant_(T):
 		# of the goal region G at time ts(end).  
 		# from the paper "Invariant Funnels around Trajectories using Sum-of-Squares Programming", Tobenkin et al.
 		def TimeVaryingLyapunovSearchRho(self, prev_x, Vs, Vdots, Ts, times, xtraj, utraj, \
-										 rho_f, multiplier_degree=None, debug=True):
+										 rho_f, multiplier_degree=None):
 			C = 1.0 #8.0
 			#rho_f = 3.0
 			tries = 40
@@ -449,22 +451,18 @@ def DubinsCarPlant_(T):
 			#rho = np.flipud(rho_f*np.exp(-C*(np.array(times)-times[0])/(times[-1]-times[0])))# + np.max(Vmin) 
 			#rho = np.linspace(0.1, rho_f, N+1)
 			#rho = np.linspace(rho_f/2.0, rho_f, N+1)
-			rho = np.linspace(rho_f, rho_f, N+1)
-			if(debug):
-				fig, ax = plt.subplots()
-				fig.suptitle('Rho progression')
-				ax.set(xlabel='index', ylabel='rho')
-				ax.grid(True)
-				plt.show(block = False)
-				
+			rho = np.linspace(rho_f*3.0, rho_f, N+1)
+			fig, ax = plt.subplots()
+			fig.suptitle('Rho progression')
+			ax.set(xlabel='index', ylabel='rho')
+			ax.grid(True)
+			plt.show(block = False)
 			need_to_break = False
 			for idx in range(tries):
-				if(debug):
-					print('starting iteration #%d with rho=' %(idx))
-					print(rho)
-					ax.plot(rho)
-					plt.pause(0.05)
-					
+				print('starting iteration #%d with rho=' %(idx))
+				print(rho)
+				ax.plot(rho)
+				plt.pause(0.05)
 				# start of number of iterations if we want
 				rhodot = np.diff(rho)/dt
 				# sampleCheck()
@@ -496,13 +494,12 @@ def DubinsCarPlant_(T):
 					if result.is_success() == False:
 						need_to_break = True
 						print('Solver could not solve anymore')
-						#import pdb; pdb.set_trace()
+						import pdb; pdb.set_trace()
 						break
 					else:
 						Lambda_vec.append(result.GetSolution(Lambda))
 						slack = result.GetSolution(gamma)
-						if(debug):
-							print('Slack #%d = %f' %(idx, slack))
+						print('Slack #%d = %f' %(idx, slack))
 						x_vec.append(x)
 						if(slack < 0.0):
 							print('In iter#%d, found negative slack so going to end prematurely... :(' %(idx))
@@ -553,9 +550,8 @@ def DubinsCarPlant_(T):
 						break;
 				
 				# end of iterations if we want
-			if(debug):
-				ax.plot(rho)
-				plt.pause(0.05)
+			ax.plot(rho)
+			plt.pause(0.05)
 			print('done computing funnel.\nFinal rho= ')
 			print(rho)
 			#import pdb; pdb.set_trace()
@@ -563,7 +559,7 @@ def DubinsCarPlant_(T):
 				Vs[i] = Vs[i]/rho[i]
 			return Vs
 		
-		def RegionOfAttraction(self, xtraj, utraj, V=None, debug=True):
+		def RegionOfAttraction(self, xtraj, utraj, V=None):
 			# Construct a polynomial V that contains all monomials with s,c,thetadot up to degree 2.
 			#deg_V = 2
 			do_normalization = False
@@ -571,6 +567,7 @@ def DubinsCarPlant_(T):
 			do_use_Slti      = True
 			# Construct a polynomial L representing the "Lagrange multiplier".
 			deg_L = 4
+			taylor_order = 3
 			Q  = 10.0*np.eye(self.nX)
 			R  = 1.0*np.eye(self.nU)
 			Qf = 1.0*np.eye(self.nX)
@@ -597,14 +594,13 @@ def DubinsCarPlant_(T):
 			#sym_context.FixInputPort(0, ucon )
 			#f = sym_system.EvalTimeDerivativesTaylor(sym_context).CopyToVector() 
 						
-			times   = xtraj.get_segment_times()
+			times = xtraj.get_segment_times()
 			all_V   = [] #might be transformed
 			all_Vd  = [] #might be transformed
 			all_Vd2 = [] 
 			all_fcl = [] #might be transformed
 			all_T   = [] #might be transformed
 			all_x0  = [] #might be transformed
-			all_K   = []
 			sumV = 0.0
 			zero_map = dict(zip(x,np.zeros(self.nX)))
 			if(do_use_Slti):
@@ -621,7 +617,7 @@ def DubinsCarPlant_(T):
 					f_Lcl   = self.EvalClosedLoopDynamics(x, ucon, xf, uf, xdf, Kf, order=1) # linearization CL
 					Af     = Evaluate(Jacobian(f_Lcl, x), zero_map) # because this is rel. coord.
 					Qf 	   = RealContinuousLyapunovEquation(Af, Q)
-					f_cl   = self.EvalClosedLoopDynamics(x, ucon, xf, uf, xdf, Kf, order=3) # for dynamics CL
+					f_cl   = self.EvalClosedLoopDynamics(x, ucon, xf, uf, xdf, Kf, order=taylor_order) # for dynamics CL
 					# make sure Lyapunov candidate is pd
 					if (self.isPositiveDefinite(Qf)==False):
 						assert False, '******\nQf is not PD for t=%f\n******' %(tf)
@@ -698,7 +694,6 @@ def DubinsCarPlant_(T):
 					xd0 = xdotraj.value(t).transpose()[0]
 					u0 = utraj.value(t).transpose()[0]
 					K0 = K.value(t).reshape(self.nU, self.nX)
-					all_K.append(K0)
 					S0 = S.value(t).reshape(self.nX, self.nX)
 					S0d = S.derivative(1).value(t).reshape(self.nX, self.nX) # Sdot
 					# make sure Lyapunov candidate is pd
@@ -717,7 +712,7 @@ def DubinsCarPlant_(T):
 						#sumV = V.Evaluate(dict(zip(x, x0+np.ones(self.nX)))) #do: V(1,1,...)=1
 						V = V / sumV  #normalize coefficient sum to one
 					# get a polynomial representation of f_closedloop, xdot = f_cl(x)
-					f_cl = self.EvalClosedLoopDynamics(x, ucon, x0, u0, xd0, K0, order=3)
+					f_cl = self.EvalClosedLoopDynamics(x, ucon, x0, u0, xd0, K0, order=taylor_order)
 					#import pdb; pdb.set_trace()
 					# vdot = x'*Sdot*x + dV/dx*fcl_poly
 					#Vdot = (x.transpose().dot(S0d)).dot(x) + V.Jacobian(x).dot(f_cl(xbar)) 
@@ -753,13 +748,13 @@ def DubinsCarPlant_(T):
 			#rho_f = 1.0
 			# time-varying PolynomialLyapunovFunction who's one-level set defines the verified invariant region
 			V = self.TimeVaryingLyapunovSearchRho(x, all_V, all_Vd, all_T, times, xtraj, utraj, rho_f, \
-												  multiplier_degree=deg_L, debug=debug)
+												  multiplier_degree=deg_L)
 			# Check Hessian of Vdot at origin
 			#H = Evaluate(0.5*Jacobian(Vdot.Jacobian(x),x), dict(zip(x, x0)))
 			#assert isPositiveDefinite(-H), "Vdot is not negative definite at the fixed point."
-			return V, all_K
+			return V
 		
-		def my_plot_sublevelset_expression(self, ax, e, x0, vertices=51, color=(0.1,0.5,0.8)): #, **kwargs):
+		def my_plot_sublevelset_expression(self, ax, e, x0, vertices=51): #, **kwargs):
 			p = Polynomial(e)
 			assert p.TotalDegree() == 2
 
@@ -790,7 +785,7 @@ def DubinsCarPlant_(T):
 			L = np.linalg.cholesky(H)
 			X = np.tile(xmin, vertices) + np.linalg.inv(np.transpose(L)).dot(Y)
 
-			return ax.fill(X[0, :]+x0[0], X[1, :]+x0[1], color=color)
+			return ax.fill(X[0, :]+x0[0], X[1, :]+x0[1], "b")
 			#return plot_sublevelset_quadratic(ax, A, b, c, vertices, **kwargs)
 
 	return Impl
@@ -800,12 +795,12 @@ def DubinsCarPlant_(T):
 def runFunnel():
 	print('******\nrunning Funnel algorithm ...\n******')
 	
-    # Declare pendulum model
-	plant = DubinsCarPlant_[float]() #None]  # Default instantiation
+    # Declare ForkLift model
+	plant = ForkLiftPlant_[float]() #None]  # Default instantiation
 		
 	# Trajectory optimization to get nominal trajectory
-	x0 = (0.0, 0.0, -math.pi/4.0)  #Initial state that trajectory should start from
-	xf = (3.0, 0.0, math.pi/4.0)  #Final desired state
+	x0 = (0.0, 0.0, -math.pi/4.0, 0.0)  #Initial state that trajectory should start from
+	xf = (3.0, 0.0, math.pi/4.0, 0.0)  #Final desired state
 	tf0 = 2.0 # Guess for how long trajectory should take
 	utraj, xtraj = plant.runDircol(x0, xf, tf0)
 	print('Trajectory takes %f[sec]' %(utraj.end_time()))
@@ -849,14 +844,14 @@ def runFunnel():
 	#f_poly = plant.SystemTaylorExpansion(f, x, ucon, xf, u0, np.zeros((2,1)), order=3)
 	# region of attraction:
 	#context = plant.CreateDefaultContext()
-	V, __ = plant.RegionOfAttraction(xtraj, utraj)
+	V = plant.RegionOfAttraction(xtraj, utraj)
 	
 	fig1, ax1 = plt.subplots()
 	ax1.set_xlim([-5.0, 5.0])
 	ax1.set_ylim([-5.0, 5.0])
 	ax1.set_xlabel('x')
 	ax1.set_ylabel('y')
-	fig1.suptitle('Car: Funnel for trajectory')
+	fig1.suptitle('Forklift: Funnel for trajectory')
 	times = xtraj.get_segment_times()
 	for i in range(len(times)):
 		x0 = xtraj.value(times[i]).transpose()[0]
