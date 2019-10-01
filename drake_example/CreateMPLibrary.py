@@ -13,12 +13,12 @@ def CreateFunnels():
 	# (x,y,theta)
 	
 	MotionPrimitives = { \
-			0: {'s': (0.0, 0.0, 0.0), 'e': (0.0, -4.0, -180.0*math.pi/180.0)}, \
-			1: {'s': (0.0, 0.0, 0.0), 'e': (0.0,  4.0,  180.0*math.pi/180.0)}, \
-			2: {'s': (0.0, 0.0, 0.0), 'e': (3.0, -2.0, -0.0*math.pi/180.0)}, \
-			3: {'s': (0.0, 0.0, 0.0), 'e': (3.0,  2.0,  0.0*math.pi/180.0)}, \
-			4: {'s': (0.0, 0.0, 0.0), 'e': (6.0,  0.0,  0.0)}, \
-			5: {'s': (0.0, 0.0, 0.0), 'e': (3.0,  0.0,  0.0)}, \
+			0: {'s': (0.0, 0.0, 0.0), 'e': (6.0,  0.0,  0.0)}, \
+			1: {'s': (0.0, 0.0, 0.0), 'e': (3.0,  0.0,  0.0)}, \
+			2: {'s': (0.0, 0.0, 0.0), 'e': (3.0,  2.0,  0.0*math.pi/180.0)}, \
+			3: {'s': (0.0, 0.0, 0.0), 'e': (3.0, -2.0, -0.0*math.pi/180.0)}, \
+			4: {'s': (0.0, 0.0, 0.0), 'e': (0.0,  4.0,  180.0*math.pi/180.0)}, \
+			5: {'s': (0.0, 0.0, 0.0), 'e': (0.0, -4.0, -180.0*math.pi/180.0)}, \
 	}
 	#dbfile = open('MPLibrary.lib', 'rb')
 	#MotionPrimitives = pickle.load(dbfile)
@@ -88,8 +88,11 @@ def CreateFunnels():
 		#motion_library.append(V)
 		mp.update({'V': V})
 		mp.update({'K': K})
+		mp.update({'xtraj': xtraj})
+		mp.update({'utraj': utraj})
+		mp.update({'t': times})
 
-	#import pdb; pdb.set_trace()
+	import pdb; pdb.set_trace()
 	dbfile = open('MPLibrary.lib', 'wb')
 	pickle.dump(MotionPrimitives, dbfile)
 	dbfile.close()
