@@ -557,10 +557,10 @@ def DubinsCarPlant_(T):
 					# this is too restrictive
 					#Lambda = prog.NewSosPolynomial(Variables(x), multiplier_degree)[0].ToExpression()
 					Lambda = prog.NewFreePolynomial(Variables(y), multiplier_degree).ToExpression()
-					gamma  = prog.NewContinuousVariables(1,'g')[0] # the slack variable to optimize
+					#gamma  = prog.NewContinuousVariables(1,'g')[0] # the slack variable to optimize
 					# Jdot-rhodot+Lambda*(rho-J) < -gamma
-					prog.AddSosConstraint( -gamma*V - (Vdot-rhodot[i] + Lambda*(rho[i]-V)) ) 
-					prog.AddCost(-gamma) #maximize gamma
+					prog.AddSosConstraint( - (Vdot-rhodot[i] + Lambda*(rho[i]-V)) ) #-gamma*V
+					#prog.AddCost(-gamma) #maximize gamma
 					result = Solve(prog)
 					if result.is_success() == False:
 						need_to_break = True
