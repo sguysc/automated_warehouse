@@ -75,7 +75,7 @@ def DubinsCarPlant_(T):
 			#import pdb; pdb.set_trace() #(xf-x0)
 			#N = 5#8 # constant
 			#N = np.int(tf0 * 10) # "10Hz" / samples per second
-			N = 4 #31 #12
+			N = 8 #4 #31 #12
 			#print('N=%d' %(N) )
 			context = self.CreateDefaultContext()
 			dircol  = DirectCollocation(self, context, num_time_samples=N,
@@ -183,14 +183,6 @@ def DubinsCarPlant_(T):
 			return A, B
 		#
 		def TVLQR(self, xtraj, utraj, Q, R, Qf):
-			#context = self.CreateDefaultContext()
-			#sym_system = self.ToSymbolic()
-			#sym_context = sym_system.CreateDefaultContext()
-			
-			#prog = MathematicalProgram()
-			#x = prog.NewIndeterminates(self.nX,'x')
-			#ucon = prog.NewIndeterminates(self.nU,'u')
-			
 			times = xtraj.get_segment_times()
 			
 			# final state goal
@@ -198,20 +190,6 @@ def DubinsCarPlant_(T):
 			x0 = xtraj.value(t).transpose()[0]
 			u0 = utraj.value(t).transpose()[0]
 
-			#sym_context.SetContinuousState(x) #x0+
-			#sym_context.FixInputPort(0, ucon ) #u0+
-			
-			# xdot=f(x,u)==>xhdot=f(xh+x0,uh+u0)-x0dot ~= df/dx*xh + df/du*uh
-			#f = sym_system.EvalTimeDerivatives(sym_context).CopyToVector() 
-			#mapping = dict(zip(x, x0))
-			#mapping.update(dict(zip(ucon, u0)))
-			# get the final condition, according to Tedrake10' Qf should be last S(LTI)
-			#A_sim = Jacobian(f, x)
-			#B_sim = Jacobian(f, ucon)
-			#A = Evaluate(A_sim, mapping)
-			#B = Evaluate(B_sim, mapping)
-			#k,s = LinearQuadraticRegulator(A, B, Q, R)  # get the Qf = S_lti
-			#Qf = s
 			# now, run backwards in time to solve for S for associated Riccati equation
 			Rinv = np.linalg.inv(R)
 			#S(3x3),s1(3,1),s2(1x1)
@@ -227,7 +205,7 @@ def DubinsCarPlant_(T):
 			for i in range(sol.y.shape[1]):
 				x0 = xtraj.value(times[i]).transpose()[0]
 				u0 = utraj.value(times[i]).transpose()[0]
-				A, B = self.PlantDerivatives(x0, u0)
+				__, B = self.PlantDerivatives(x0, u0)
 				
 				s = Ssol[:,i].reshape(Qf.shape)
 				k = Rinv.dot(B.transpose()).dot(s)
@@ -362,10 +340,13 @@ def DubinsCarPlant_(T):
 			U = u_d - K.dot(x-x_d)  # feedback law
 			for i in range(len(f_nonlin)):
 				f_cl[i] = f_nonlin[i].Substitute(dict(zip(x, x+x_d))) 
-				f_cl[i] = f_cl[i].Substitute(dict(zip(ucon, U))) - x_d_dot[i]
+				f_cl[i] = f_cl[i].Substitute(dict(zip(ucon, U))) - x_d_dot[i] # -----
 			# now we're in xbar=x-x0 state where xbar=0 is equilibrium point
 			f_fb = self.SystemTaylorExpansion2(f_cl, x, [], 0.0*x_d, [], 0.0*x_d_dot, order)
 			
+			#for i in range(len(f_nonlin)):
+			#	f_fb[i] = f_fb[i] + x_d_dot[i] # -----
+				
 			return f_fb
 		
 		"""
@@ -504,16 +485,16 @@ def DubinsCarPlant_(T):
 		def TimeVaryingLyapunovSearchRho(self, prev_x, Vs_orig, Vdots_orig, Ts, all_fcl, times, xtraj, utraj, \
 										 rho_f, multiplier_degree=None, debug=True, find_V=False):
 			C = 2.0 #8.0
-			#rho_f = 3.0
-			tries = 3 #40
+			tries = 100 #40
+			deg_V = 2
+			eps   = 1e-4
 			prev_rhointegral = 0.
 			N = len(times)-1
-			#Vmin = self.minimumV(prev_x, Vs) #0.05*np.ones((1, len(times))) # need todo something here instead of this!! 
 			dt = np.diff(times)
 			rho = np.flipud(rho_f*np.exp(-C*(np.array(times)-times[0])/(times[-1]-times[0])))# + np.max(Vmin) 
 			#rho = np.linspace(0.1, rho_f, N+1)
 			#rho = np.linspace(rho_f/2.0, rho_f, N+1)
-			#rho = np.linspace(rho_f, rho_f, N+1)
+			#rho = np.linspace(1.2*rho_f, rho_f, N+1)
 			#import pdb; pdb.set_trace()
 			Vs    = list(Vs_orig)
 			Vdots = list(Vdots_orig)
@@ -524,7 +505,7 @@ def DubinsCarPlant_(T):
 				ax.set(xlabel='index', ylabel='rho')
 				ax.grid(True)
 				plt.show(block = False)
-				
+			
 			need_to_break = False
 			# iterations of bilinear optimizations
 			for idx in range(tries):
@@ -546,7 +527,7 @@ def DubinsCarPlant_(T):
 					# because I'm switching the prev_x from previous iteration to be consistent
 					V    = Vs[i].Substitute(dict(zip(prev_x, y)))
 					Vdot = Vdots[i].Substitute(dict(zip(prev_x, y)))
-						
+					#import pdb; pdb.set_trace()
 					#x0 = xtraj.value(times[i]).transpose()[0]
 					#Ttrans = np.linalg.inv(Ts[i])
 					#x0 = Ttrans.dot(x0)
@@ -554,12 +535,13 @@ def DubinsCarPlant_(T):
 					#if(vdmin > rhodot[i]):
 					#	print('Vdot is greater than rhodot!')
 					
-					# this is too restrictive
-					#Lambda = prog.NewSosPolynomial(Variables(x), multiplier_degree)[0].ToExpression()
-					Lambda = prog.NewFreePolynomial(Variables(y), multiplier_degree).ToExpression()
+					#Lambda = prog.NewFreePolynomial(Variables(y), multiplier_degree).ToExpression()
+					Lambda = prog.NewSosPolynomial(Variables(y), multiplier_degree)[0].ToExpression()
 					#gamma  = prog.NewContinuousVariables(1,'g')[0] # the slack variable to optimize
+					#prog.AddSosConstraint( V - eps*y.dot(y) ) 
 					# Jdot-rhodot+Lambda*(rho-J) < -gamma
-					prog.AddSosConstraint( - (Vdot-rhodot[i] + Lambda*(rho[i]-V)) ) #-gamma*V
+					#prog.AddSosConstraint( -eps*y.dot(y) - (Vdot - rhodot[i] + Lambda*(rho[i]-V)) ) #-gamma*V
+					prog.AddSosConstraint( - (Vdot - rhodot[i] + Lambda*(rho[i]-V)) ) #-gamma*V
 					#prog.AddCost(-gamma) #maximize gamma
 					result = Solve(prog)
 					if result.is_success() == False:
@@ -570,20 +552,21 @@ def DubinsCarPlant_(T):
 					else:
 						# we're good, keep lambdas and x's for second optimization
 						Lambda_vec.append(result.GetSolution(Lambda))
-						slack = result.GetSolution(gamma)
+						#slack = result.GetSolution(gamma)
 						x_vec.append(y)
-						if(debug):
-							print('Slack #%d (%d) = %f' %(idx, i, slack))
-						if(slack < 0.0):
-							print('In iter#%d, found negative slack so going to end prematurely... :(' %(idx))
-							need_to_break = True
+						#if(debug):
+						#	print('Slack #%d (%d) = %f' %(idx, i, slack))
+						#if(slack < 0.0):
+						#	print('In iter#%d, found negative slack so going to end prematurely... :(' %(idx))
+						#	need_to_break = True
 				
 				# break if couldn't find a solution or slack is not positive anymore
 				if(need_to_break == True):
 					break;
 				
 				# now, fix Lagrange multipliers and maximize rho and find a better V
-				rhointegral = 0.0
+				rhointegral   = 0.0
+				ellipsoid_vol = 0.0
 				progV = MathematicalProgram()
 				z     = progV.NewIndeterminates(len(prev_x),'z')
 				t     = progV.NewContinuousVariables(N,'r')
@@ -598,7 +581,6 @@ def DubinsCarPlant_(T):
 				xf       = xtraj.value(times[-1]).transpose()[0]
 				#scale_V  = V[-1].Evaluate(dict(zip(z, 0.0*xf+x_add)))
 				#
-				#import pdb; pdb.set_trace()
 				# loop over the whole trajectory to find the integral. go backwards to get dV/dt
 				for i in range(N-1, -1, -1):
 					#print(i)
@@ -617,30 +599,47 @@ def DubinsCarPlant_(T):
 						f_cl = np.copy(all_fcl[i]) # just to "allocate" the same variable
 						for j in range(self.nX):
 							f_cl[j] = f_cl[j].Substitute(dict(zip(prev_x, z)))
-						# Construct a polynomial V that contains all monomials with x,y,theta up to degree 2
-						deg_V = 2
-						eps   = 1e-4
-						# run over the previous, except the last V, and make a decision-variable of coeff.
-						V[i] = progV.NewFreePolynomial(Variables(z), deg_V).ToExpression() 
-						# let him find the minimum value location. why else is it an optimizer??!
-						# Add a constraint to enforce that V is strictly positive away from x0.
-						constraint1 = progV.AddSosConstraint(V[i] - eps*(z-0.0*x0).dot(z-0.0*x0))
-						# Construct the polynomial which is the time derivative of V.
-						Vdot[i] = V[i].Jacobian(z).dot(f_cl) + (V[i+1]-V[i])/dt[i] 
-						# Add V(1,1,...) = V_guess(1,1,...) constraint. give it some sort of scaling.
-						#constraint2 = progV.AddLinearConstraint( V[i].Substitute(dict(zip(z, 0.0*x0)) ) == eps)
-						# make all V's in the "scaling" of the last V
-						x_add = np.ones(self.nX) #np.random.rand(3)-0.5
-						x_add[2] = 0 # because this is the theta state, and there's wrap around and stuff
-						scale_V  = Vs[i].Evaluate(dict(zip(prev_x, 0.0*xf+x_add)))
-						constraint3 = progV.AddLinearConstraint(
-    						V[i].Substitute(dict(zip(z, 0.0*x0 + x_add))) == scale_V )
+						if True:
+							# Construct a polynomial V that contains all monomials with x,y,theta up to degree 2
+							# run over the previous, except the last V, and make a decision-variable of coeff.
+							V[i] = progV.NewSosPolynomial(Variables(z), deg_V)[0].ToExpression() 
+							# let him find the minimum value location. why else is it an optimizer??!
+							# Add a constraint to enforce that V is strictly positive away from x0.
+							#constraint1 = progV.AddSosConstraint(V[i] - eps*(z-0.0*x0).dot(z-0.0*x0))
+							# Construct the polynomial which is the time derivative of V.
+							Vdot[i] = V[i].Jacobian(z).dot(f_cl) + (V[i+1]-V[i])/dt[i] 
+							# Add V(1,1,...) = V_guess(1,1,...) constraint. give it some sort of scaling.
+							#constraint2 = progV.AddLinearConstraint( V[i].Substitute(dict(zip(z, 0.0*x0)) ) == eps)
+							# make all V's in the "scaling" of the last V
+							x_add = np.ones(self.nX) #np.random.rand(3)-0.5
+							#x_add[2] = 0 # because this is the theta state, and there's wrap around and stuff
+							#scale_V  = Vs_orig[-1].Evaluate(dict(zip(prev_x, 0.0*xf+x_add))) #Vs
+							#scale_V  = Vs_orig[i].Evaluate(dict(zip(prev_x, 0.0*xf+x_add))) #Vs
+							scale_V = 1.0
+							constraint3 = progV.AddLinearEqualityConstraint(
+								V[i].Substitute(dict(zip(z, 0.0*x0 + x_add))) == scale_V )
+							#x_add[1] = -x_add[1] # the other direction
+							#scale_V  = Vs[i].Evaluate(dict(zip(prev_x, 0.0*xf+x_add)))
+							constraint4 = progV.AddLinearConstraint(
+								V[i].Substitute(dict(zip(z, 0.0*xf))) <= eps) #helps it start at V(0)=0
+						else:
+							V[i]    = V[i].Substitute(dict(zip(prev_x, z))) # for debugging
+							Vdot[i] = Vdot[i].Substitute(dict(zip(prev_x, z))) # for debugging
+
 						#Vs_orig[i].Substitute(dict(zip(prev_x, 0.0*x0 + x_add)))  )
 
 						L1   = Lambda_vec[i].Substitute(dict(zip(x_vec[i], z)))
 						#Vdot = Vdot*rho_x[i] - V*rhod_x
 						progV.AddSosConstraint( -(Vdot[i] - rhod_x + L1 * ( rho_x[i]-V[i] ) ) )
-
+						#import pdb; pdb.set_trace()
+						#'''
+						a = 0.5*Jacobian(V[i].Jacobian(z),z) / rho_x[i]
+						det_a = a[0,0]*(a[1,1]*a[2,2]-a[1,2]*a[2,1]) \
+						      - a[0,1]*(a[1,0]*a[2,2]-a[1,2]*a[2,0]) \
+							  + a[0,2]*(a[1,0]*a[2,1]-a[1,1]*a[2,0])
+						vol = det_a**(-0.5) # Vol(ellipsoid) = det(A)^(-0.5) when { x | |x'Ax|<1 }
+						ellipsoid_vol = ellipsoid_vol + vol
+						#'''
 					else:
 						# use the V provided by the LQR routine
 						V    = Vs[i].Substitute(dict(zip(prev_x, z)))
@@ -651,40 +650,43 @@ def DubinsCarPlant_(T):
 						progV.AddSosConstraint( -(Vdot - rhod_x + L1 * ( rho_x[i]-V ) ) )
 
 				progV.AddCost(-rhointegral)
+				#progV.AddCost(-ellipsoid_vol)
 				result = Solve(progV)
-				if (result.is_success() == False):
-					import pdb; pdb.set_trace()
-					rhos = rho
-				else:
+				if (result.is_success() == True):
 					rhos = result.GetSolution(rho_x)
-				
-				# set it back to the original x's for next iteration
-				if(find_V):
-					for i in range(N-1,-1,-1):
-						Vsol = result.GetSolution(V[i])
-						Vs[i] = Vsol.Substitute(dict(zip(z, prev_x)))
-						f_cl = np.copy(all_fcl[i]) # just to "allocate" the same variable
-						#for j in range(self.nX):
-						#	f_cl[j] = all_fcl[i][j].Substitute(dict(zip(prev_x, z)))
-						Vdots[i] = Vs[i].Jacobian(prev_x).dot(f_cl) + (Vs[i+1]-Vs[i])/dt[i] #Vsoldot
-						#Vdots[i] = Vsoldot.Substitute(dict(zip(z, prev_x)))
+					#import pdb; pdb.set_trace()
+					ellipsoid_vol = result.GetSolution(ellipsoid_vol)
+					# set it back to the original x's for next iteration
+					if(find_V):
+						for i in range(N-1,-1,-1):
+							Vsol = result.GetSolution(V[i])
+							Vs[i] = Vsol.Substitute(dict(zip(z, prev_x)))
+							f_cl = np.copy(all_fcl[i]) # just to "allocate" the same variable
+							#for j in range(self.nX):
+							#	f_cl[j] = all_fcl[i][j].Substitute(dict(zip(prev_x, z)))
+							Vdots[i] = Vs[i].Jacobian(prev_x).dot(f_cl) + (Vs[i+1]-Vs[i])/dt[i] #Vsoldot
+							#Vdots[i] = Vsoldot.Substitute(dict(zip(z, prev_x)))
 						
-				rho = []
-				for r in rhos:
-					rho.append(r[0].Evaluate())
+					rho = []
+					for r in rhos:
+						rho.append(r[0].Evaluate())
 				
-				rhointegral = result.GetSolution(rhointegral).Evaluate()
-				if( np.abs(rhointegral-prev_rhointegral)/rhointegral < 1E-5): # 0.1%
-					print('Rho integral converged')
-					need_to_break = True
-					break;
-				else:	
-					prev_rhointegral = rhointegral
-					print('End of iteration #%d: rhointegral=%f' %(idx, rhointegral))
-					if(need_to_break == True):
-						print('In iter#%d, found negative slack so ending prematurely... :(' %(idx))
+					rhointegral = result.GetSolution(rhointegral).Evaluate()
+					if( np.abs(rhointegral-prev_rhointegral)/rhointegral < 1E-5): # 0.1%
+						print('Rho integral converged')
+						need_to_break = True
 						break;
-				
+					else:	
+						prev_rhointegral = rhointegral
+						print('End of iteration #%d: rhointegral=%f Vol=%s' %(idx, rhointegral, ellipsoid_vol.to_string()))
+						if(need_to_break == True):
+							print('In iter#%d, found negative slack so ending prematurely... :(' %(idx))
+							break;
+				else:
+					# result is not successful
+					print('F')
+					break;
+					
 				# end of iterations if we want
 			if(debug):
 				ax.plot(rho)
@@ -699,7 +701,7 @@ def DubinsCarPlant_(T):
 				#x0 = xtraj.value(times[i]).transpose()[0]
 				#Vs[i] = Vs[i].Substitute(dict(zip(prev_x, prev_x-x0))) /rho[i]
 				# taking care of x0 in the plotting phase
-				Vs[i] = Vs[i] /rho[i]
+				Vs[i] = Vs[i] / rho[i]
 					
 			return Vs
 		
@@ -720,14 +722,14 @@ def DubinsCarPlant_(T):
 			# where x is actually in rel. coord.
 			f_Lcl  = self.EvalClosedLoopDynamics2(x, ucon, xf, uf, xdf, Kf, order=1) # linearization CL
 			Af     = Evaluate(Jacobian(f_Lcl, x), zero_map) # zero because this is rel. coord. "xbar"
-			Qf 	   = RealContinuousLyapunovEquation(Af, Q)
+			Qf1    = RealContinuousLyapunovEquation(Af, Q)
 			
 			# make sure Lyapunov candidate is pd
 			if (self.isPositiveDefinite(Qf)==False):
 				assert False, '******\nQf is not PD for t=%f\n******' %(tf)
 			Vf = x.transpose().dot(Qf.dot(x)) # because we're in the "xbar" state
+			scale = Vf.Evaluate(dict(zip(x, 0.0*xf + 1.0))) # reminder, xbar state
 			
-			"""
 			if(debug):
 				fig2, ax2 = plt.subplots()
 				ax2.set_xlim([-5.0, 5.0])
@@ -735,20 +737,22 @@ def DubinsCarPlant_(T):
 				ax2.set_xlabel('x')
 				ax2.set_ylabel('y')
 				fig2.suptitle('Car: Last point')
-			"""
-
+			
+			#find_V = False
 			if(find_V == True):
 				deg_V = 2
 				eps   = 1e-4
 				rho   = 0.1 # guess something low enough
+				prev_rho = rho
 				
 				f_cl_save = f_cl.copy()
-				scale = Vf.Evaluate(dict(zip(x, 0.0*xf + 1.0))) # reminder, xbar state
+				tries = 3 #30
 				# do bilinear optimization, give it several tries
-				for i in range(10):
+				for i in range(tries): 
 					# fix V, rho
 					prog1 = MathematicalProgram()
 					y     = prog1.NewIndeterminates(self.nX, 'y')  # now, it's ybar
+					#scale = Vf.Evaluate(dict(zip(x, 0.0*xf + 1.0))) # reminder, xbar state
 					
 					Vf    = Vf.Substitute(dict(zip(x, y))) # mainly for debugging purposes to see everything changed
 					for j in range(self.nX):
@@ -763,9 +767,10 @@ def DubinsCarPlant_(T):
 					prog2 = MathematicalProgram()
 					z     = prog2.NewIndeterminates(self.nX, 'z') # now, it's zbar for debugging purposes
 					rho   = prog2.NewContinuousVariables(1, 'r')[0]
-					Vfnew = prog2.NewFreePolynomial(Variables(z), deg_V).ToExpression()
+					Vfnew = prog2.NewSosPolynomial(Variables(z), deg_V)[0].ToExpression()
+					#Vfnew = prog2.NewFreePolynomial(Variables(z), deg_V).ToExpression()
 					# Add a constraint to enforce that V is strictly positive away from xf.
-					prog2.AddSosConstraint(Vfnew - eps*(z-0.0*xf).dot(z-0.0*xf))
+					#prog2.AddSosConstraint(Vfnew - eps*(z-0.0*xf).dot(z-0.0*xf))
 					# Construct the polynomial which is the time derivative of V.
 					for j in range(self.nX):
 						f_cl[j] = f_cl_save[j].Substitute(dict(zip(x, z)))
@@ -775,13 +780,15 @@ def DubinsCarPlant_(T):
 					# Add a constraint that Vdot is strictly negative away from x0
 					prog2.AddSosConstraint( -Vfdot + Lambda*(Vfnew-rho) )
 					# just some scaling/normalization
-					prog2.AddLinearConstraint(
+					#prog2.AddLinearConstraint(
+					prog2.AddLinearEqualityConstraint(
 						Vfnew.Substitute(dict(zip(z, 0.0*xf + 1.0))) == scale)
 						   #Vf.Substitute(dict(zip(y, xf + np.ones(self.nX)))) )
-					prog2.AddLinearConstraint(
-						Vfnew.Substitute(dict(zip(z, 0.0*xf))) == eps) #helps it start at V(0)=0
+					#prog2.AddLinearConstraint(
+					prog2.AddLinearEqualityConstraint(
+						Vfnew.Substitute(dict(zip(z, 0.0*xf))) == 0.0) #helps it start at V(0)=0
 					
-					#prog2.AddCost(-rho)
+					prog2.AddCost(-rho)
 					# Call the solver.
 					result = Solve(prog2)
 					assert(result.is_success())
@@ -789,20 +796,32 @@ def DubinsCarPlant_(T):
 					Vf = Vf.Substitute(dict(zip(z, x)))
 					rho = result.GetSolution(rho)
 					if(debug):
-						print('Find init set iteration #%d, rho=%f' %(i, rho))
-						#self.my_plot_sublevelset_expression(ax2, Vf, xf, color=(0.1, i/15.+.2,0.8))
-						#plt.pause(2.0)
-
+						if(np.mod(i, 5) == 0):
+							a = Evaluate(0.5*Jacobian(Vf.Jacobian(x),x), zero_map) / rho
+							vol = (np.linalg.det(a))**(-0.5) # Vol(ellipsoid) = det(A)^(-0.5) when { x | |x'Ax|<1 }
+							print('Find init set iteration #%d, rho=%f, Vol=%f' %(i, rho, vol))
+							self.my_plot_sublevelset_expression(ax2, Vf/rho, xf, color=(0.1, i/40.+.2,0.8))
+							plt.pause(1.0)
+					# if no improvement is made, you might just as well quit
+					if(np.abs(prev_rho-rho)/rho < 0.01):
+						print('Initial rho and volume of ellipsoid converged, moving on ...')
+						break;
+					else:
+						prev_rho = rho
 				
 				if(debug):
 					print('Originial Qf = ')
 					print(Qf)
+					
 				Qf = Evaluate(0.5*Jacobian(Vf.Jacobian(x),x), zero_map)
 				#rho_f = rho*0.8 # just to be on the safe-side. REMOVE WHEN WORKING
-				rho_f = rho
+				#rho_f = rho
+				Qf    = Qf / rho
+				rho_f = 1.0
 				if(debug):
 					print('Modified Qf = ')
 					print(Qf)
+					
 				
 				#print('rho=')
 				#print(rho)
@@ -848,7 +867,11 @@ def DubinsCarPlant_(T):
 				rho_f = rho_f*0.8 # just to be on the safe-side. REMOVE WHEN WORKING
 				if(debug):
 					print('Rho_final(t=%f) = %f; slack=%f' %(tf, rho_f, slack))
-				
+			##################
+			#import pdb; pdb.set_trace()
+			#Qf = Qf / rho_f
+			#rho_f = 1.0
+			##################
 			return Qf, rho_f
 		
 		def RegionOfAttraction(self, xtraj, utraj, V=None, debug=True, find_V=False):
@@ -921,9 +944,7 @@ def DubinsCarPlant_(T):
 					# make sure Lyapunov candidate is pd
 					if (self.isPositiveDefinite(S0)==False):
 						assert False, '******\nS is not PD for t=%f\n******' %(t)
-					# for debugging
-					#S0 = np.eye(self.nX)
-					#V = x.dot(S0.dot(x))
+
 					V = x.transpose().dot(S0.dot(x)) # we're in xbar realm
 					# normalization of the lyapunov function
 					#if(do_normalization):
@@ -964,7 +985,8 @@ def DubinsCarPlant_(T):
 				Vdot = (all_V[i+1]-all_V[i])/(times[i+1]-times[i]) + all_V[i].Jacobian(x).dot(all_fcl[i]) 
 				all_Vd2.append(Vdot)
 			all_Vd2.append(all_V[-1].Jacobian(x).dot(all_fcl[-1])) #add last Vdot same for now :-/
-			
+			#all_Vd2.append(all_Vd[-1]) # or this
+			#import pdb; pdb.set_trace()
 			# time-varying PolynomialLyapunovFunction who's one-level set defines the verified invariant region
 			V = self.TimeVaryingLyapunovSearchRho(x, all_V, all_Vd2, all_T, all_fcl, times, xtraj, utraj, rho_f, \
 												  multiplier_degree=deg_L, debug=debug, find_V=find_V)
@@ -1008,6 +1030,18 @@ def DubinsCarPlant_(T):
 			return ax.fill(X[0, :]+x0[0], X[1, :]+x0[1], color=color)
 			#return plot_sublevelset_quadratic(ax, A, b, c, vertices, **kwargs)
 
+		# Convert to Matlab helper function
+		def C2M(self, expr):
+			mat = expr.to_string().replace('*', '.*')
+			mat = mat.replace('/', './')
+			mat = mat.replace('pow', '')
+			mat = mat.replace(', ', '.^')
+			mat = mat.replace('x(0)', 'x')
+			mat = mat.replace('x(1)', 'y')
+			mat = mat.replace('x(2)', 'z')
+			
+			return mat
+			
 	return Impl
 
 
@@ -1070,16 +1104,16 @@ def runFunnel():
 	V, __ = plant.RegionOfAttraction(xtraj, utraj, debug=True, find_V=True)
 	
 	fig1, ax1 = plt.subplots()
-	ax1.set_xlim([-50.0, 50.0])
-	ax1.set_ylim([-50.0, 50.0])
+	ax1.set_xlim([-5.0, 5.0])
+	ax1.set_ylim([-5.0, 5.0])
 	ax1.set_xlabel('x')
 	ax1.set_ylabel('y')
 	fig1.suptitle('Car: Funnel for trajectory')
 	times = xtraj.get_segment_times()
 	for i in range(len(times)):
 		x0 = xtraj.value(times[i]).transpose()[0]
-		plant.my_plot_sublevelset_expression(ax1, V[i], x0)
-		plt.pause(0.05)
+		plant.my_plot_sublevelset_expression(ax1, V[i], x0, color=(0.1, min(i/(len(times)+.1)+.2, 1.0),0.8))
+		plt.pause(.5)
 		#import pdb; pdb.set_trace()
 	ax1.plot(xy_knots[0, :], xy_knots[1, :], 'k')
 	plt.show(block = True)	
