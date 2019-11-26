@@ -40,15 +40,21 @@ def DubinsCarPlant_(T):
 			# three positions, no velocities
 			self.DeclareContinuousState(self.nX, 0, 0)
 
-			self.knotPoints = 9#9#8#7#5
+			self.knotPoints = 12#9#8#7#5
 			#self.knotPoints = 4
 			self.ex_knots = self.knotPoints
 			
 			# parameters and limits from 
 			# "Tow tractor and Center rider Vehicle Limits Rev1.docx"
-			self.L = 1.0 #length of car, for a 36inch length fork
-			self.umax   =  2.6 * 1.6 * 1000.0 / 3600.0  # mph -> m/sec     5.0
-			self.delmax =  80.0*math.pi/180.0  #rad   30.0 80
+			#self.L = 1.0 #length of car, for a 36inch length fork, dimension C in spec.
+			# forklift 3010
+			self.L      = 1.882 # wheel base, for a 36inch length fork, dimension C in spec.
+			self.TotalW = 0.902 # width of car, for all forklifts, dimension G in spec.
+			self.TotalL = 2.619 # length of car, for a 36inch length fork, dimension B in spec.
+			self.CG_B   = 0.425 # Bumper to Drive Tire Center , for a 36inch length fork, dimension L in spec.
+			self.CG_F   = self.TotalL-self.CG_B # tire center to front, dimension B-L in spec.
+			self.umax   = 2.6 * 1.6 * 1000.0 / 3600.0  # mph -> m/sec     5.0
+			self.delmax = 80.0*math.pi/180.0  #rad   30.0 80
 			self.usat   = np.array([ [-self.delmax, self.delmax], \
 									 [ 0.0, self.umax] ]) 
 			#self.usat   = np.array([ [-self.delmax/1., self.delmax/1.], \
@@ -72,6 +78,7 @@ def DubinsCarPlant_(T):
 				self.g0.append( (tmp, 0.5) )
 				self.g0.append( (-tmp, 0.5) )
 			
+			self.initial_x_trajectory = None
 			#self.GetSurfaceEquation(np.array([1, 2, -0.5]), p2, p3)
 
 		def _construct_copy(self, other, converter=None):
@@ -142,8 +149,12 @@ def DubinsCarPlant_(T):
 			dircol.AddFinalCost(dircol.time()/1.0) #10.0
 
 			# guess initial trajectory
-			initial_x_trajectory = \
-				PiecewisePolynomial.FirstOrderHold([0., tf0], np.column_stack((x0, xf)))
+			if(self.initial_x_trajectory == None):
+				initial_x_trajectory = \
+					PiecewisePolynomial.FirstOrderHold([0., tf0], np.column_stack((x0, xf)))
+			else:
+				initial_x_trajectory = self.initial_x_trajectory
+				
 			dircol.SetInitialTrajectory(PiecewisePolynomial(), initial_x_trajectory)
 
 			# optimize
@@ -1496,14 +1507,17 @@ def runFunnel():
 	# Trajectory optimization to get nominal trajectory
 	#x0 = (0.0, 0.0, -math.pi/4.0)  #Initial state that trajectory should start from
 	#xf = (3.0, 0.0, math.pi/4.0)  #Final desired state
-	x0 = (0.0, 0.0, 0.0)
-	xf = (3.0, 2.0, 0.0*math.pi/180.0)
+	#x0 = (0.0, 0.0, 0.0)
+	#xf = (3.0, 2.0, 0.0*math.pi/180.0)
 	#x0 = (0.0, 0.0, 0.0)
 	#xf = (3.0, 0.0, 0.0*math.pi/180.0)
 	#x0 = (0.0, 0.0, 0.0)
 	#xf = (0.0, 4.0, 180.0*math.pi/180.0)
+	x0 = (0.0, 0.0, 0.0)
+	xf = (5.0, 0.0, 0.0*math.pi/180.0)
 	dist = np.linalg.norm(np.array(xf)-np.array(x0))
 	tf0 = dist/(plant.umax*0.8) # Guess for how long trajectory should take
+	#tf0 = 2.4
 	utraj, xtraj = plant.runDircol(x0, xf, tf0)
 	print('Trajectory takes %f[sec]' %(utraj.end_time()))
 	print('Done\n******')
