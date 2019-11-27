@@ -9,6 +9,7 @@ import dill
 from shapely.geometry import Polygon, box
 import networkx as nx
 from numpy import linalg as LA
+import GeometryFunctions as gf
 
 '''
 def GetMap():
@@ -57,20 +58,20 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, cell_h=1.25, cell_w=1.25
 	nX = len(X)
 	nY = len(Y)
 	
-	possible_orientations = ('N','E','S','W', 'N', 'E')
+	#possible_orientations = ('N','E','S','W', 'N', 'E')
 	
 	total_count = 0
 	G = nx.DiGraph()
-	for orient in (0, 1, 2, 3):
+	for orient in range(4): #corresponds to (E, N, W, S)
+		# rotate the motion primitives according to initial position
 		if(orient == 0):
 			rotmat = np.array([[0.,-1.], [1.,0.]])
 		elif(orient == 1):
 			rotmat = np.array([[-1.,0.], [0.,-1.]])
 		elif(orient == 2):
-			rotmat = np.array([[0.,-1.], [1.,0.]])
-		elif(orient == 3):
+			rotmat = np.array([[0.,1.], [-1.,0.]])
+		else:
 			rotmat = np.array([[1.,0.], [0.,1.]])
-		import pdb; pdb.set_trace()
 
 		for i, x in enumerate(X):
 			for j, y in enumerate(Y):
@@ -91,15 +92,26 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, cell_h=1.25, cell_w=1.25
 								    'H' + str(int(toRot)) + 'X' + str(i+int(connect2[0][0])) + 'Y' + str(j+int(connect2[1][0])), \
 								    weight=LA.norm(connect2), motion=key, index=total_count )
 						total_count += 1
-	import pdb; pdb.set_trace()
+	#import pdb; pdb.set_trace()
 	return G
 
-def IsPathFree(workspace, MotionPrimitives, obs, xs, ys, xe, ye, xmin, xmax, ymin, ymax):
-	free_path = False
+# function that decides if an obstacle-free path exist between start and end point
+# taking into account the width of the funnels
+def IsPathFree(workspace, mp, obstacles, xs, ys, xe, ye, xmin, xmax, ymin, ymax):
+	# check if you're not going out of bounds (doesn't account for a U-turn)
 	if( (xe < xmin) or (xe > xmax) ):
-		return free_path
+		return False
 	if( (ye < ymin) or (ye > ymax) ):
-		return free_path
+		return False
+	
+	for S in mp['V']:
+		e = gf.Ellipse(mp['x0'], S)
+		for obs in obstacles:
+			v = np.array(obs.exterior.coords[:])
+			b = gf.Box(v)
+			overlaps = gf.TestIntersectionBoxEllipse(b, e)
+			if(overlaps == True):
+				return False
 	
 	return True
 
@@ -139,7 +151,7 @@ def ReplicateMap():
 	obs.append( box( 455.0, 1113.0, 564.0, 1269.0 ) ) # don't enter zone, in pixels
 	obs.append( box( 564.0,  830.0, 690.0, 1032.0 ) ) # don't enter zone, in pixels
 	obs.append( box( 537.0,  464.0, 690.0,  723.0 ) ) # don't enter zone, in pixels
-	#import pdb; pdb.set_trace()
+	import pdb; pdb.set_trace()
 	
 	return workspace, obs
 	
@@ -151,7 +163,7 @@ def ReplicateMap():
 if __name__ == "__main__":
 	MP = LoadMP(fName='MPLibrary.lib')
 	workspace, obs = ReplicateMap()
-	PopulateMapWithMP(MP, workspace, obs, cell_h=cell, cell_w=cell)
+	DiGraph = PopulateMapWithMP(MP, workspace, obs, cell_h=cell, cell_w=cell)
 	
 	
 	

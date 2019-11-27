@@ -1446,7 +1446,7 @@ def DubinsCarPlant_(T):
 			A = 0.5*Evaluate(e2, env)
 			# simple projection to 2D assuming we want to plot on (x1,x2)
 			A = A[0:2,0:2]
-			b = b[0:2]*0.0
+			b = b[0:2]*0.0  # check this!!!! GUY
 			c = 0.0
 			#Plots the 2D ellipse representing x'Ax + b'x + c <= 1, e.g.
     		#the one sub-level set of a quadratic form.
