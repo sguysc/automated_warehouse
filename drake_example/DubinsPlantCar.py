@@ -40,7 +40,7 @@ def DubinsCarPlant_(T):
 			# three positions, no velocities
 			self.DeclareContinuousState(self.nX, 0, 0)
 
-			self.knotPoints = 12#9#8#7#5
+			self.knotPoints = 8
 			#self.knotPoints = 4
 			self.ex_knots = self.knotPoints
 			
@@ -63,7 +63,9 @@ def DubinsCarPlant_(T):
 			#Vehicle acceleration, unloaded 0.8 m/s2
 			#Vehicle deceleration, unloaded 1.6 m/s2
 			#Steer slew rate 60 deg / sec 
-			p1 = itertools.product([-0.2,0.0,0.2], repeat=3)
+			#p1 = itertools.product([-0.2,0.0,0.2], repeat=3)
+			#p1 = itertools.product([-1.25/2.0,0.0,1.25/2.0], repeat=3)
+			p1 = itertools.product([-1.0,0.0,1.0], repeat=3)
 			#p1 = itertools.product([-0.5,0.5], repeat=3)
 			self.pxi = []
 			self.g0 = []
@@ -71,6 +73,9 @@ def DubinsCarPlant_(T):
 			for p in p1:
 				self.pxi.append(p)
 			self.pxi = np.array(self.pxi)
+			self.pxi[:,0] = self.pxi[:,0] * 1.25/2.0
+			self.pxi[:,1] = self.pxi[:,1] * 1.25/2.0
+			self.pxi[:,2] = self.pxi[:,2] * 45.0*math.pi/180.0
 			#import pdb; pdb.set_trace()
 			for i in range(self.nX):
 				tmp = np.zeros(self.nX)
@@ -135,6 +140,7 @@ def DubinsCarPlant_(T):
 			
 			# set some constraints on start and final pose
 			eps = .01 * np.ones(self.nX) # relaxing factor  np.array([0.0, 0.0, 0.0])
+			#eps = .1 * np.ones(self.nX) # relaxing factor  np.array([0.0, 0.0, 0.0])
 			#eps[-1] = 0.0
 			#eps = np.array([0.0, 0.0, 0.0])
 			dircol.AddBoundingBoxConstraint(x0, x0, dircol.initial_state())
@@ -950,7 +956,9 @@ def DubinsCarPlant_(T):
 				
 					#rhointegral = result.GetSolution(rhointegral).Evaluate()
 					rhointegral = ellipsoid_vol.Evaluate()
-					if( np.abs(rhointegral-prev_rhointegral)/rhointegral < 1.5E-3): # 0.1%
+					# stop if it starts going up (although it might happen and then recooperate) 
+					if( (rhointegral>prev_rhointegral and idx>1) or \
+					    np.abs(rhointegral-prev_rhointegral)/rhointegral < 1.5E-3): # 0.1%
 						print('Rho integral converged')
 						need_to_break = True
 						break;
@@ -1514,7 +1522,7 @@ def runFunnel():
 	#x0 = (0.0, 0.0, 0.0)
 	#xf = (0.0, 4.0, 180.0*math.pi/180.0)
 	x0 = (0.0, 0.0, 0.0)
-	xf = (5.0, 0.0, 0.0*math.pi/180.0)
+	xf = (2.5, 0.0, 0.0*math.pi/180.0)
 	dist = np.linalg.norm(np.array(xf)-np.array(x0))
 	tf0 = dist/(plant.umax*0.8) # Guess for how long trajectory should take
 	#tf0 = 2.4

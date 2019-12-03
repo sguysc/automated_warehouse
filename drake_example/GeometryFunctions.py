@@ -13,8 +13,8 @@ class Ellipse:
 		self.invM   = np.linalg.inv(M)
 		
 		w, v = np.linalg.eig(M)
-		self.length = np.sqrt(w)
-		self.axis   = v
+		self.length = 1./np.sqrt(w)
+		self.axis   = v.T
 		
 	
 class Box:
@@ -26,21 +26,21 @@ class Box:
 		#convert to 3d
 		vertices = vertices[0:-1,:]
 		#import pdb; pdb.set_trace()
-		vneg     = np.hstack((vertices, -math.pi*np.ones((4,1))))
-		vpos     = np.hstack((vertices, +math.pi*np.ones((4,1))))
+		vneg     = np.hstack((vertices, -2.0*math.pi*np.ones((4,1))))
+		vpos     = np.hstack((vertices, +2.0*math.pi*np.ones((4,1))))
 		vertices = np.vstack((vpos, vneg))
 		self.vertices = vertices
 		
 		center   = np.mean(vertices, axis=0)
 		
 		axis = np.zeros((3, 3))
-		axis[:, 2] = self.__GetNormal__(vertices[0,:], vertices[1,:], vertices[3,:])
-		axis[:, 1] = self.__GetNormal__(vertices[0,:], vertices[3,:], vertices[7,:])
+		axis[:, 2] = self.__GetNormal__(vertices[3,:], vertices[2,:], vertices[1,:])
+		axis[:, 1] = self.__GetNormal__(vertices[1,:], vertices[2,:], vertices[6,:])
 		axis[:, 0] = self.__GetNormal__(vertices[0,:], vertices[1,:], vertices[5,:])
 		
 		# half the length of the recatangle edge
 		length = np.zeros(3)
-		length[2] = math.pi
+		length[2] = 2.0*math.pi
 		length[1] = np.linalg.norm(vertices[0,:]-vertices[1,:])/2.0
 		length[0] = np.linalg.norm(vertices[0,:]-vertices[3,:])/2.0
 		
@@ -66,13 +66,16 @@ class Box:
 				
 def TestIntersectionBoxEllipse(box, ellipse):
 	L = np.zeros(3)
+	
 	# computes the increase in extents for B'
 	for i in range(3):
-		L[i] = np.sqrt( np.dot( box.axis[:,i], np.dot( ellipse.invM, box.axis[:,i] ) ) )
+		L[i] = np.sqrt( np.dot( box.axis[:,i], np.dot( ellipse.invM, box.axis[:,i].reshape((-1,1)) ).reshape((3,)) ) )
 		
 	# Transform ellipsoid center to box coord.
 	KmC = ellipse.center - box.center
-	xi  = np.array([ np.dot(box.axis[:,0], KmC), np.dot(box.axis[:,1], KmC), np.dot(box.axis[:,2], KmC) ])
+	xi  = np.array([ np.dot(box.axis[:,0], KmC.reshape((-1,1))), \
+					 np.dot(box.axis[:,1], KmC.reshape((-1,1))), \
+					 np.dot(box.axis[:,2], KmC.reshape((-1,1))) ])
 	
 	if ( (np.abs(xi[0])> box.length[0] + L[0]) or \
 		 (np.abs(xi[1])> box.length[1] + L[1]) or \
@@ -83,19 +86,22 @@ def TestIntersectionBoxEllipse(box, ellipse):
 	s = np.array([ 1.0 if xi[0]>=0.0 else -1.0, 1.0 if xi[1]>=0.0 else -1.0, 1.0 if xi[2]>=0.0 else -1.0 ])
 	PmC = s[0]*box.length[0]*box.axis[:,0] + s[1]*box.length[1]*box.axis[:,1] + s[2]*box.length[2]*box.axis[:,2]
 	Delta = KmC-PmC
-	MDelta = np.dot(ellipse.M, Delta)
+	MDelta = np.dot(ellipse.M, Delta.reshape((-1,1)))
 	
 	rsqr = np.zeros(3)
+	#import pdb; pdb.set_trace()
 	for i in range(3):
-		r = np.dot( ellipse.axis[:,i], Delta ) / ellipse.length[i]
+		r = np.dot( ellipse.axis[:,i], Delta.reshape((-1,1)) )[0] / ellipse.length[i]
 		rsqr[i] = r*r
 	
-	UMD = np.array([ np.dot(box.axis[:,0], MDelta), np.dot(box.axis[:,1], MDelta), np.dot(box.axis[:,2], MDelta) ])
+	UMD = np.array([ np.dot(box.axis[:,0], MDelta)[0], \
+					 np.dot(box.axis[:,1], MDelta)[0], \
+					 np.dot(box.axis[:,2], MDelta)[0] ])
 	UMU = np.zeros((3,3))
 	for row in range(3):
-		prod = np.dot(ellipse.M, box.axis[row,:])
+		prod = np.dot(ellipse.M, box.axis[:,row].reshape((-1,1)))
 		for col in range(3):
-			UMU[row, col] = np.dot(box.axis[:,col], prod)
+			UMU[row, col] = np.dot(box.axis[:,col], prod)[0]
 	
 	if(s[0]*(UMD[0]*UMU[2,2]-UMU[0,2]*UMD[2]) > 0 and \
 	   s[1]*(UMD[1]*UMU[2,2]-UMU[1,2]*UMD[2]) > 0 and \
@@ -143,7 +149,6 @@ def plot_be(box, ellipse, overlap):
 	# plot ellipse
 	fig = plt.figure()
 	ax = fig.add_subplot(111, projection='3d')
-	ax.set_aspect("equal")
 	ax.plot_wireframe(x, y, z,  rstride=4, cstride=4, color='b', alpha=0.2)
 	
 	#plot box
@@ -159,14 +164,15 @@ def plot_be(box, ellipse, overlap):
 		plt.title('Not intersecting')		
 	else:
 		plt.title('Intersecting')
+	ax.set_aspect("equal")
 	plt.show() #block = False)
 		
 		
 def test():
-	e0 = np.array([ 4. ,-0.6 ,0. ])
-	S = np.array([ [0.7, 0., 0.], [0., 0.3, 0.], [0., 0., 3.] ])
-	vertices = np.array([[10.,  0.], [10.,  10.], [5.,  10.], [5.,  0.], [10.,  0.]])
-	e = Ellipse(e0, S)
+	e0 = np.array([ 6. ,3. ,-math.pi-1.1 ])
+	S  = np.array([ [1, 0., 0.], [0., 0.2, 0.], [0., 0., 1.] ])
+	vertices = np.array([[10.,  1.], [10.,  11.], [5.,  11.], [5.,  1.], [10.,  0.]])
+	e  = Ellipse(e0, S)
 	
 	b = Box(vertices)
 	overlaps = TestIntersectionBoxEllipse(b, e)

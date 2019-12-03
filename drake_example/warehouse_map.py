@@ -10,6 +10,8 @@ from shapely.geometry import Polygon, box
 import networkx as nx
 from numpy import linalg as LA
 import GeometryFunctions as gf
+from itertools import combinations
+
 
 '''
 def GetMap():
@@ -52,13 +54,16 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, cell_h=1.25, cell_w=1.25
 	pix2m  = W_Width/(bounds[3]-bounds[1])
 	bounds = bounds * pix2m
 	
+	# plot obstacles & total workable space
+	ax = plot_map(workspace, obs, pix2m)
+		
 	X = np.arange(bounds[0]+cell, bounds[2]-cell, cell)
 	Y = np.arange(bounds[1]+cell, bounds[3]-cell, cell)
 	#	XV, YV = np.meshgrid(X, Y)
 	nX = len(X)
 	nY = len(Y)
 	
-	#possible_orientations = ('N','E','S','W', 'N', 'E')
+	#possible_orientations = {0: 0.*math.pi/180.0, 1: 90.*math.pi/180.0, 2: 180.*math.pi/180.0, 3: 270.*math.pi/180.0}
 	
 	total_count = 0
 	G = nx.DiGraph()
@@ -73,6 +78,7 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, cell_h=1.25, cell_w=1.25
 		else:
 			rotmat = np.array([[1.,0.], [0.,1.]])
 
+		import pdb; pdb.set_trace()
 		for i, x in enumerate(X):
 			for j, y in enumerate(Y):
 				for key, mp in MotionPrimitives.items():
@@ -83,8 +89,9 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, cell_h=1.25, cell_w=1.25
 								          [ mp['e'][1]-mp['s'][1] ]])
 					connect2  = rotmat.dot( connect2 ) # fixed to true orientation
 					toLoc     =  np.array([[x], [y]]) + connect2
-
-					if(IsPathFree(workspace, mp, obs, x, y, toLoc[0], toLoc[1], X[0], X[-1], Y[0], Y[-1] )):
+					# check if funnel is in bounds and does not collide with any obstacle
+					if(IsPathFree(workspace, mp, obs, rotmat, orient, x, y, toLoc[0], toLoc[1], \
+								  X[0], X[-1], Y[0], Y[-1], pix2m, ax )):
 						toRot    = (mp['e'][2]-mp['s'][2]) / (90.0*math.pi/180.0)
 						toRot    = (orient+toRot)%4
 						connect2 = connect2/cell
@@ -92,27 +99,53 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, cell_h=1.25, cell_w=1.25
 								    'H' + str(int(toRot)) + 'X' + str(i+int(connect2[0][0])) + 'Y' + str(j+int(connect2[1][0])), \
 								    weight=LA.norm(connect2), motion=key, index=total_count )
 						total_count += 1
+		print('Done computing transition map for orientation (%d/4).' %(orient+1))
 	#import pdb; pdb.set_trace()
 	return G
 
 # function that decides if an obstacle-free path exist between start and end point
 # taking into account the width of the funnels
-def IsPathFree(workspace, mp, obstacles, xs, ys, xe, ye, xmin, xmax, ymin, ymax):
-	# check if you're not going out of bounds (doesn't account for a U-turn)
+def IsPathFree(workspace, mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, ymax, pix2m):
+	# check if you're not going out of bounds (doesn't account for a U-turn!)
 	if( (xe < xmin) or (xe > xmax) ):
 		return False
 	if( (ye < ymin) or (ye > ymax) ):
 		return False
 	
-	for S in mp['V']:
-		e = gf.Ellipse(mp['x0'], S)
+	for i, S in enumerate(mp['V']):
+		#import pdb; pdb.set_trace()
+		# in motion primitive's normalized coordinates
+		x_rel = mp['xcenter'][i]
+		# move it to account for current orientation
+		theta = x_rel[2]
+		x_rel = rotmat.dot(x_rel[0:2]) # just x,y
+		# calculate each ellipsoid's center in the funnel
+		e_center = np.array([xs, ys]) + x_rel
+		e_center = np.hstack((e_center, theta + orient*90.0*math.pi/180.0))
+		# create the ellipsoid object
+		e = gf.Ellipse(e_center, S)
+		# iterate through all obstacles to see if any one of them
+		# touches any of the ellipsoids (funnel). This does not take
+		# into account the funnel in between any two ellipsoids
 		for obs in obstacles:
-			v = np.array(obs.exterior.coords[:])
+			v = pix2m * np.array(obs.exterior.coords[:])
 			b = gf.Box(v)
 			overlaps = gf.TestIntersectionBoxEllipse(b, e)
 			if(overlaps == True):
 				return False
-	
+		
+	# if we made it thus far, the funnel is ok
+	if(False):
+		for i, S in enumerate(mp['V']):
+			x_rel = mp['xcenter'][i]
+			theta = x_rel[2]
+			x_rel = rotmat.dot(x_rel[0:2]) # just x,y
+			e_center = np.array([xs, ys]) + x_rel
+			e_center = np.hstack((e_center, theta + orient*90.0*math.pi/180.0))
+			# create the ellipsoid object
+			e = gf.Ellipse(e_center, S)
+			plot_funnel(ax, e)
+			
 	return True
 
 def ReplicateMap():
@@ -151,18 +184,76 @@ def ReplicateMap():
 	obs.append( box( 455.0, 1113.0, 564.0, 1269.0 ) ) # don't enter zone, in pixels
 	obs.append( box( 564.0,  830.0, 690.0, 1032.0 ) ) # don't enter zone, in pixels
 	obs.append( box( 537.0,  464.0, 690.0,  723.0 ) ) # don't enter zone, in pixels
-	import pdb; pdb.set_trace()
+	#import pdb; pdb.set_trace()
 	
 	return workspace, obs
 	
-	def PlotGraph(G):
-		pos=nx.spring_layout(G, iterations=10)
-		nx.draw(G,pos,edgelist=G.edges(),node_size=50,with_labels=False)
-		plt.show()
+def PlotGraph(G):
+	pos=nx.spring_layout(G, iterations=10)
+	nx.draw(G,pos,edgelist=G.edges(),node_size=50,with_labels=False)
+	plt.show()
+
+def plot_map(workspace, obstacles, pix2m): 
+	# plot map, obstacles, ...
+	fig = plt.figure()
+	ax = fig.add_subplot(111, projection='3d')
+
+	v = pix2m * np.array(workspace.exterior.coords[:])
+	wksp = gf.Box(v) 
+	#plot workspace
+	for s, e in combinations(wksp.vertices, 2):
+		if(np.sum(s==e) == 2): # works only when parallel!!
+			ax.plot3D(*zip(s, e), color="b")
+
+	for obs in obstacles:
+		v = pix2m * np.array(obs.exterior.coords[:])
+		box = gf.Box(v) 
+		#plot box
+		for s, e in combinations(box.vertices, 2):
+			if(np.sum(s==e) == 2): # works only when parallel!!
+				ax.plot3D(*zip(s, e), color="b")
+
+	ax.set_xlabel('X [m]')
+	ax.set_ylabel('Y [m]')
+	ax.set_zlabel('$\Theta$ [Rad]')
+
+	ax.set_aspect("equal")
+	plt.show(block = False)
+	plt.pause(0.05)
+
+	return ax
+
+def plot_funnel(ax, ellipse): 
+	A = ellipse.M
+	center = ellipse.center
+
+	# find the rotation matrix and radii of the axes
+	U, s, rotation = np.linalg.svd(A)
+	radii = 1.0/np.sqrt(s)
+
+	# create ellipse in spherical coordinates
+	u = np.linspace(0.0, 2.0 * np.pi, 100)
+	v = np.linspace(0.0, np.pi, 100)
+	x = radii[0] * np.outer(np.cos(u), np.sin(v))
+	y = radii[1] * np.outer(np.sin(u), np.sin(v))
+	z = radii[2] * np.outer(np.ones_like(u), np.cos(v))
+	for i in range(len(x)):
+		for j in range(len(x)):
+			[x[i,j],y[i,j],z[i,j]] = np.dot([x[i,j],y[i,j],z[i,j]], rotation) + center
+
+	# plot ellipse
+	fig = plt.figure()
+	ax = fig.add_subplot(111, projection='3d')
+	ax.plot_wireframe(x, y, z,  rstride=4, cstride=4, color='b', alpha=0.2)
+
+	#plt.show() #block = False)
+		
+
 
 if __name__ == "__main__":
 	MP = LoadMP(fName='MPLibrary.lib')
 	workspace, obs = ReplicateMap()
+	
 	DiGraph = PopulateMapWithMP(MP, workspace, obs, cell_h=cell, cell_w=cell)
 	
 	

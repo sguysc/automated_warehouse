@@ -39,15 +39,23 @@ def CreateFunnels():
 	}
 	'''
 	MotionPrimitives = { \
-			0: {'s': (0.0, 0.0, 0.0), 'e': (5.0,  0.0,  0.0), 'kp': 12, 'ex_kp': 12, 'traj': None}, \
-			1: {'s': (0.0, 0.0, 0.0), 'e': (2.5,  0.0,  0.0), 'kp': 9, 'ex_kp': 9, 'traj': None}, \
+			0: {'s': (0.0, 0.0, 0.0), 'e': (5.00,  0.00,  0.0), 'kp': 12, 'ex_kp': 12, 'traj': None}, \
+			1: {'s': (0.0, 0.0, 0.0), 'e': (2.50,  0.00,  0.0), 'kp': 8, 'ex_kp': 8, 'traj': None}, \
+			2: {'s': (0.0, 0.0, 0.0), 'e': (3.75,  1.25,  0.0*math.pi/180.0), 'kp': 5, 'ex_kp': 6, 'traj': None}, \
+			3: {'s': (0.0, 0.0, 0.0), 'e': (3.75, -1.25,  0.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': None}, \
+			4: {'s': (0.0, 0.0, 0.0), 'e': (2.50,  2.50,  90.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': None}, \
+			5: {'s': (0.0, 0.0, 0.0), 'e': (2.50, -2.50, -90.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': None}, \
+			6: {'s': (0.0, 0.0, 0.0), 'e': (0.00,  2.50,  180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 7, 'traj': uturn_motion }, \
+			7: {'s': (0.0, 0.0, 0.0), 'e': (0.00, -2.50, -180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 7, 'traj': uturn_motion }, \
+	}
+	#2: {'s': (0.0, 0.0, 0.0), 'e': (2.5,  1.25,  0.0*math.pi/180.0), 'kp': 12, 'ex_kp': 12, 'traj': None}, \
+	#3: {'s': (0.0, 0.0, 0.0), 'e': (2.5, -1.25,  0.0*math.pi/180.0), 'kp': 12, 'ex_kp': 12, 'traj': None}, \
+	'''
+	MotionPrimitives = { \
 			2: {'s': (0.0, 0.0, 0.0), 'e': (2.5,  1.25,  0.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': None}, \
 			3: {'s': (0.0, 0.0, 0.0), 'e': (2.5, -1.25,  0.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': None}, \
-			4: {'s': (0.0, 0.0, 0.0), 'e': (2.5,  2.5,  90.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': None}, \
-			5: {'s': (0.0, 0.0, 0.0), 'e': (2.5, -2.5, -90.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': None}, \
-			6: {'s': (0.0, 0.0, 0.0), 'e': (0.0,  2.5,  180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 7, 'traj': uturn_motion }, \
-			7: {'s': (0.0, 0.0, 0.0), 'e': (0.0, -2.5, -180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 7, 'traj': uturn_motion }, \
 	}
+	'''
 	#dbfile = open('MPLibrary.lib', 'rb')
 	#MotionPrimitives = dill.load(dbfile)
 	#dbfile.close()
@@ -100,8 +108,10 @@ def CreateFunnels():
 		
 		#times = xtraj.get_segment_times()
 		times = np.linspace(utraj.start_time(), utraj.end_time(), len(V))
+		xcenter = []
 		for i in range(len(times)):
 			x0 = xtraj.value(times[i]).transpose()[0]
+			xcenter.append(x0)
 			plant.my_plot_sublevelset_expression(ax1, V[i], x0, color=(0.1, idx/10.+.2,0.8))
 		
 		x = list(V[0].GetVariables())
@@ -112,7 +122,7 @@ def CreateFunnels():
 		
 		mp.update({'V': V_matrix})
 		mp.update({'K': K})
-		#mp.update({'xtraj': xtraj})
+		mp.update({'xcenter': xcenter})
 		#mp.update({'utraj': utraj})
 		#mp.update({'t': times})
 
