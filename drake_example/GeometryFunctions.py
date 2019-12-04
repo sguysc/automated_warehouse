@@ -8,7 +8,9 @@ from mpl_toolkits.mplot3d import Axes3D # This import registers the 3D projectio
 
 class Ellipse:
 	def __init__(self, center, M):
-		self.center = center
+		self.center = center.copy()
+		# wrap the angle between (-pi,+pi)
+		#self.center[2] = (( -self.center[2] + math.pi) % (2.0 * math.pi ) - math.pi) * -1.0
 		self.M      = M
 		self.invM   = np.linalg.inv(M)
 		
