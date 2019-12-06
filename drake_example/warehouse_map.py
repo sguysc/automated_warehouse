@@ -3,11 +3,19 @@ import matplotlib.pyplot as plt
 import math
 import dill
 import re
+import glob
+import sys
+import resource
+from sets import Set
+import curses, sys, subprocess
+
 import networkx as nx
 
 from numpy import linalg as LA
 from shapely.geometry import Polygon, box
 from itertools import combinations
+
+from StructuredSlugsParser import compiler as slugscomp
 
 #from DubinsPlantCar import *
 #from pydrake.symbolic import Expression
@@ -37,7 +45,7 @@ def LoadMP(fName='MPLibrary.lib'):
 	dbfile.close()
 	return MotionPrimitives
 	
-def PopulateMapWithMP(MotionPrimitives, workspace, obs, cell_h=1.25, cell_w=1.25):
+def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, cell_w=1.25):
 	global W_Width
 	global W_xgrid
 	global W_ygrid
@@ -58,6 +66,11 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, cell_h=1.25, cell_w=1.25
 	nX = len(X)
 	nY = len(Y)
 	
+	if(glob.glob(map_kind + '.*')):
+		# if it already exist, save time re-creating the graph
+		G = LoadGraphFromFile(map_kind)
+		return G, ax
+
 	#possible_orientations = {0: 0.*math.pi/180.0, 1: 90.*math.pi/180.0, 2: 180.*math.pi/180.0, 3: 270.*math.pi/180.0}
 	
 	total_count = 0
@@ -103,6 +116,8 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, cell_h=1.25, cell_w=1.25
 		print('Done computing transition map for orientation (%d/4).' %(orient+1))
 	
 	print(nx.info(G))
+	# save time for next time
+	SaveGraphToFile(G, map_kind)
 	#import pdb; pdb.set_trace()
 	return G, ax
 
@@ -391,12 +406,14 @@ def plot_path(ax, G, paths, MotionPrimitives):
 				e = gf.Ellipse(e_center, S)
 				plot_ellipsoid(ax, e, orient, color=(float(j)/float(len(paths)),0.6,0.6))
 
-def CreateSlugsInputFile(G, goals, filename='map_funnel'):
+def CreateSlugsInputFile(G, goals, MP, filename='map_funnel'):
 	Nnodes = nx.number_of_nodes(G)
 	Nedges = nx.number_of_edges(G)
 	
 	start_label = []
 	finish_label = []
+	
+	print('Creating to structured slugs file ...')
 	
 	N, __ = goals.shape
 	for i in range(N):
@@ -409,12 +426,239 @@ def CreateSlugsInputFile(G, goals, filename='map_funnel'):
 		finish_label.append(GetNodeLabel(finish))
 	
 	map_label_2_bit = {}
-	index = 0
-	for node in G:
-		map_label_2_bit.update({node: index})
-		index = index + 1
+	node_count = 0
 	#import pdb; pdb.set_trace()
+	for node in G:
+		map_label_2_bit.update({node: node_count})
+		node_count = node_count + 1
+		#children = G.neighbors(node) #list of successor nodes of parent
+		#if(children.__length_hint__()>0):
+		#	map_label_2_bit.update({node: node_count})
+		#	node_count = node_count + 1
+		#else:
+		#	#this node is a dead-end so we might as well just not include it
+		#	pass
+		
+	with open(filename + '.structuredslugs', 'w') as f: 	
+		# structured slugs
+		f.write('[INPUT]\n') 
+		f.write('R:0...%d\n' %( node_count ) ) #funnels/regions
+		f.write('\n')
+		
+		f.write('[OUTPUT]\n')
+		f.write('mp:0...%d\n' %( len(MP) ))
+		f.write('\n')
+				
+		f.write('[ENV_LIVENESS]\n')
+		f.write('\n')
+		
+		f.write('[SYS_LIVENESS]\n')
+		for g in start_label:
+			f.write('R=%d\n' %( map_label_2_bit[ g ] ))
+		f.write('\n')
+		
+		f.write('[SYS_INIT]\n') 
+		f.write('\n')
+		
+		f.write('[ENV_INIT]\n')
+		f.write('R=%d\n' %( map_label_2_bit[ start_label[0] ] )) # need to change this, either to have
+		# no specific start point, or, start at the current location, or have some mechanism to get from current
+		# location to start position
+		f.write('\n')
+		
+		f.write('[SYS_TRANS]\n')
+		f.write('\n')
+		
+		f.write('[ENV_TRANS]\n')
+		all_mps = Set(np.arange(0, len(MP)))
+		for parent in G:
+			children = G.neighbors(parent) #list of successor nodes of parent
+			avail_links = Set([])
+			for child in children:
+				grandchild = G.neighbors(child) 
+				#if(grandchild.__length_hint__()>0):
+					# if it has no grandchild then it was probably removed earlier
+					# and it is not even available in the dictionary
+				avail_links.update([G[parent][child]['motion']])
+				f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \
+													   G[parent][child]['motion'], \
+													   map_label_2_bit[child]))
+			links_not_provided = all_mps - avail_links
+			while(len(links_not_provided)>0):
+				f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \
+												   links_not_provided.pop(), \
+												   map_label_2_bit[parent]))
+	print('done.')
+	print('Converting to slugsin ...')
+	try:
+		resource.setrlimit(resource.RLIMIT_STACK, (2**29,-1))
+	except ValueError:
+		pass # Cannot increase limit
+	sys.setrecursionlimit(10**6)
+	sys.stdout = open(filename + '.slugsin', "w") # the compiler function is just printing on screen
+	slugscomp.performConversion(filename + '.structuredslugs', False)
+	sys.stdout = sys.__stdout__  # convert back to printing on screen
+	print('done.')
+	return map_label_2_bit
+
+def RunSlugs(filename='map_funnel'):
+	slugsLink = '/home/cornell/Tools/slugs/src/slugs'
+	specFile  = filename + '.slugsin'
 	
+	#--interactiveStrategy
+	slugsProcess = subprocess.Popen(slugsLink + ' --explicitStrategy --jsonOutput ' + specFile, \
+									shell=True, bufsize=1048000, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+	import pdb; pdb.set_trace()
+	# Get input APs
+	slugsProcess.stdin.write("XPRINTINPUTS\n")
+	slugsProcess.stdin.flush()
+	slugsProcess.stdout.readline() # Skip the prompt
+	lastLine = " "
+	inputAPs = []
+	while (lastLine!=""):
+		lastLine = slugsProcess.stdout.readline().strip()
+		if lastLine!="":
+			inputAPs.append(lastLine)
+
+	# Get output APs
+	slugsProcess.stdin.write("XPRINTOUTPUTS\n")
+	slugsProcess.stdin.flush()
+	slugsProcess.stdout.readline() # Skip the prompt
+	lastLine = " "
+	outputAPs = []
+	while (lastLine!=""):
+		lastLine = slugsProcess.stdout.readline().strip()
+		if lastLine!="":
+			outputAPs.append(lastLine)
+			
+	# ==================================
+	# Parse input and output bits into structured form
+	# ==================================
+	structuredVariables = []
+	structuredVariablesBitPositions = []
+	structuredVariablesMin = []
+	structuredVariablesMax = []
+	structuredVariablesIsOutput = []
+
+	for (isOutput,source,startIndex) in [(False,inputAPs,0),(True,outputAPs,len(inputAPs))]:
+		# First pass: Find the limits of all integer variables
+		for i,a in enumerate(source):
+			if "@" in a:
+				# is Structured
+				(varName,suffix) = a.split("@")
+				if "." in suffix:
+					# Is a master variable
+					(varNum,minimum,maximum) = suffix.split(".")
+					assert varNum=="0"
+					structuredVariables.append(varName)    
+					structuredVariablesBitPositions.append({0:i+startIndex})
+					structuredVariablesMin.append(int(minimum))
+					structuredVariablesMax.append(int(maximum))
+					structuredVariablesIsOutput.append(isOutput)
+
+		# Second pass: parse all other variables
+		for i,a in enumerate(source):
+			if "@" in a:
+				(varName,suffix) = a.split("@")
+				if not "." in suffix:
+					# Is a slave variable
+					indexFound = False
+					for j,b in enumerate(structuredVariables):
+						if b==varName:
+							indexFound=j
+					if indexFound==None:
+						print >>sys.stderr,"Error in input instance: Master variables have \
+											to occur before the slave variables in the input file.\n"
+						sys.exit(1)
+					assert structuredVariablesIsOutput[indexFound]==isOutput
+					structuredVariablesBitPositions[indexFound][int(suffix)] = i+startIndex
+			else:
+				# is Unstructured
+				structuredVariables.append(a)    
+				structuredVariablesBitPositions.append({0:i+startIndex})
+				structuredVariablesMin.append(0)
+				structuredVariablesMax.append(1)
+				structuredVariablesIsOutput.append(isOutput)
+	
+	# ==================================
+	# Prepare visualization
+	# ==================================
+	print "Out:",structuredVariables
+	print "Out:",structuredVariablesBitPositions
+	print "Out:",structuredVariablesMin
+	print "Out:",structuredVariablesMax
+	print "Out:",structuredVariablesIsOutput
+
+	print "inputAPs:",inputAPs
+	print "outputAPs:",outputAPs
+
+	maxLenInputOrOutputName = 15 # Minimium size
+	for a in structuredVariables:
+		maxLenInputOrOutputName = max(maxLenInputOrOutputName,len(a))
+	if len(structuredVariables)==0:
+		print >>sys.stderr, "Error: No variables found.\n"
+		sys.exit(1)
+	
+	
+				
+def SaveGraphToFile(G, filename):
+	nx.write_gpickle(G, filename + '.pickle')
+
+def LoadGraphFromFile(filename):
+	return nx.read_gpickle(filename + '.pickle')
+	
+def plot_ellipse(ax, A, x0, orient):
+	vertices = 51
+	
+	# simple projection to 2D assuming we want to plot on (x1,x2)
+	A = A[0:2,0:2]
+	b = np.array([[0], [0]])  # check this!!!! GUY
+	c = 0.0
+	#Plots the 2D ellipse representing x'Ax + b'x + c <= 1, e.g.
+	#the one sub-level set of a quadratic form.
+	H = .5*(A+A.T)
+	xmin = LA.solve(-2*H, np.reshape(b, (2, 1)))
+	fmin = -xmin.T.dot(H).dot(xmin) + c  # since b = -2*H*xmin
+	assert fmin <= 1, "The minimum value is > 1; there is no sub-level set " \
+			  "to plot"
+
+	# To plot the contour at f = (x-xmin)'H(x-xmin) + fmin = 1,
+	# we make a circle of values y, such that: y'y = 1-fmin,
+	th = np.linspace(0, 2*np.pi, vertices)
+	Y = np.sqrt(1-fmin)*np.vstack([np.sin(th), np.cos(th)])
+	# then choose L'*(x - xmin) = y, where H = LL'.
+	L = np.linalg.cholesky(H)
+	X = np.tile(xmin, vertices) + LA.inv(np.transpose(L)).dot(Y)
+
+	if(orient == 0):
+		clr = (0.1,0.5,0.8)
+	elif(orient == 1):
+		clr = (0.3,0.5,0.8)
+	elif(orient == 2):
+		clr = (0.5,0.5,0.8)
+	elif(orient == -1 or orient == 3):
+		clr = (0.7,0.5,0.8)
+
+	ax.fill(X[0, :]+x0[0], X[1, :]+x0[1], color=clr)
+
+if __name__ == "__main__":
+	map_kind = 'none' #'raymond')
+	MP = LoadMP(fName='MPLibrary.lib')
+	workspace, obs, goals = ReplicateMap(map_kind=map_kind) #
+	
+	DiGraph, ax = PopulateMapWithMP(MP, workspace, obs, map_kind, cell_h=cell, cell_w=cell)
+	path = FindPathBetweenGoals(DiGraph, goals)
+	plot_path(ax, DiGraph, path, MP)
+	#import pdb; pdb.set_trace()
+	map_label_2_bit = CreateSlugsInputFile(DiGraph, goals, MP, filename='map_funnel')
+	RunSlugs(filename='map_funnel')
+	
+	plt.show(block=True)
+	
+
+							 
+							 
+'''	
 	with open(filename + '.smv', 'w') as f: 
 		f.write('-- Skeleton SMV file\n')
 		f.write('-- (Generated by warehouse_map.py)\n')
@@ -465,70 +709,4 @@ def CreateSlugsInputFile(G, goals, filename='map_funnel'):
 			f.write('!s.bit0 & s.bit1 & !s.bit2 & !s.bit3))) \n')
 		
 		f.write('\t);\n')
-		
-		
-		
-		''' # structured slugs
-		f.write('[INPUT]') 
-		f.write(' ')  # empty in the non-reactive case
-		
-		f.write('[OUTPUT]') 
-		f.write('funnel:0...%d' % (Nnodes)) 
-		
-		f.write('[ENV_INIT]') 
-		
-		f.write('[SYS_INIT]') 
-		
-		f.write('[ENV_TRANS]') 
-		
-		f.write('[SYS_TRANS]') 
-		
-		f.write('[SYS_LIVENESS]') 
-		'''
-	
-	
-def plot_ellipse(ax, A, x0, orient):
-	vertices = 51
-	
-	# simple projection to 2D assuming we want to plot on (x1,x2)
-	A = A[0:2,0:2]
-	b = np.array([[0], [0]])  # check this!!!! GUY
-	c = 0.0
-	#Plots the 2D ellipse representing x'Ax + b'x + c <= 1, e.g.
-	#the one sub-level set of a quadratic form.
-	H = .5*(A+A.T)
-	xmin = LA.solve(-2*H, np.reshape(b, (2, 1)))
-	fmin = -xmin.T.dot(H).dot(xmin) + c  # since b = -2*H*xmin
-	assert fmin <= 1, "The minimum value is > 1; there is no sub-level set " \
-			  "to plot"
-
-	# To plot the contour at f = (x-xmin)'H(x-xmin) + fmin = 1,
-	# we make a circle of values y, such that: y'y = 1-fmin,
-	th = np.linspace(0, 2*np.pi, vertices)
-	Y = np.sqrt(1-fmin)*np.vstack([np.sin(th), np.cos(th)])
-	# then choose L'*(x - xmin) = y, where H = LL'.
-	L = np.linalg.cholesky(H)
-	X = np.tile(xmin, vertices) + LA.inv(np.transpose(L)).dot(Y)
-
-	if(orient == 0):
-		clr = (0.1,0.5,0.8)
-	elif(orient == 1):
-		clr = (0.3,0.5,0.8)
-	elif(orient == 2):
-		clr = (0.5,0.5,0.8)
-	elif(orient == -1 or orient == 3):
-		clr = (0.7,0.5,0.8)
-
-	ax.fill(X[0, :]+x0[0], X[1, :]+x0[1], color=clr)
-
-if __name__ == "__main__":
-	MP = LoadMP(fName='MPLibrary.lib')
-	workspace, obs, goals = ReplicateMap(map_kind='none') #'raymond')
-	
-	DiGraph, ax = PopulateMapWithMP(MP, workspace, obs, cell_h=cell, cell_w=cell)
-	path = FindPathBetweenGoals(DiGraph, goals)
-	plot_path(ax, DiGraph, path, MP)
-	#import pdb; pdb.set_trace()
-	CreateSlugsInputFile(DiGraph, goals, filename='map_funnel')
-	plt.show(block=True)
-	
+'''
