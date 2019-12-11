@@ -1,5 +1,7 @@
 http://wiki.ros.org/multi_jackal_tutorials
 
+source devel/setup.bash
+
 how to run gazebo with 4 jackals:
 roslaunch multi_jackal_tutorials four_jackal.launch rviz:=true
 

@@ -8,12 +8,15 @@ import sys
 import resource
 from sets import Set
 import curses, sys, subprocess
+import json
+from itertools import combinations
+from timeit import default_timer as timer
 
 import networkx as nx
 
 from numpy import linalg as LA
 from shapely.geometry import Polygon, box
-from itertools import combinations
+
 
 from StructuredSlugsParser import compiler as slugscomp
 
@@ -22,6 +25,7 @@ from StructuredSlugsParser import compiler as slugscomp
 #from pydrake.all import PiecewisePolynomial
 
 import GeometryFunctions as gf
+import ROSUtilities as RU
 
 ft2m     = 0.3048
 W_Height = 0.0 #233.0 * ft2m # [m]
@@ -51,6 +55,8 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 	global W_ygrid
 	global pix2m
 	
+	tic = timer()
+
 	bounds = np.array(list(workspace.bounds))
 	pix2m  = W_Width/(bounds[3]-bounds[1])
 	bounds = bounds * pix2m
@@ -66,9 +72,19 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 	nX = len(X)
 	nY = len(Y)
 	
+	obstacles = []
+	for obstacle in obs:
+		v = pix2m * np.array(obstacle.exterior.bounds)
+		obstacles.append(v)
+	# create the world map for gazebo simulation
+	RU.CreateCustomMapWorld(map_kind, bounds, obstacles)
+	import 	pdb; pdb.set_trace()
+	
 	if(glob.glob(map_kind + '.*')):
 		# if it already exist, save time re-creating the graph
 		G = LoadGraphFromFile(map_kind)
+		toc = timer()
+		print('Motion primitives file exist, so just loading (%f[sec])' %(toc-tic))
 		return G, ax
 
 	#possible_orientations = {0: 0.*math.pi/180.0, 1: 90.*math.pi/180.0, 2: 180.*math.pi/180.0, 3: 270.*math.pi/180.0}
@@ -119,6 +135,8 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 	# save time for next time
 	SaveGraphToFile(G, map_kind)
 	#import pdb; pdb.set_trace()
+	toc = timer()
+	print('Motion primitives on map took %f[sec]' %(toc-tic))
 	return G, ax
 
 # function that decides if an obstacle-free path exist between start and end point
@@ -179,6 +197,8 @@ def ReplicateMap(map_kind = 'none'):
 	global W_Width
 	global ft2m
 	
+	tic = timer()
+		
 	if(map_kind.lower() == 'raymond'):
 		# manually done from the warehouse map we got from Raymond
 		rack_w = 12.0
@@ -216,7 +236,7 @@ def ReplicateMap(map_kind = 'none'):
 		obs.append( box( 564.0,  830.0, 690.0, 1032.0 ) ) # don't enter zone, in pixels
 		obs.append( box( 537.0,  464.0, 690.0,  723.0 ) ) # don't enter zone, in pixels
 		
-		goals = np.array([[60., 70., 0.0], [20., 120., 180.0*math.pi/180.0]])
+		goals = np.array([[670., 90., 0.0], [200., 990., -90.0*math.pi/180.0]])
 		
 		W_Height = 233.0 * ft2m # [m]
 		W_Width  = 434.0 * ft2m # [m]
@@ -245,6 +265,8 @@ def ReplicateMap(map_kind = 'none'):
 		W_Width  = 40.0 # [m]
 		
 	#import pdb; pdb.set_trace()
+	toc = timer()
+	print('Loading map took %f[sec]' %(toc-tic))
 	
 	return workspace, obs, goals
 
@@ -252,6 +274,8 @@ def FindPathBetweenGoals(G, goals):
 	global pix2m
 	global cell
 	
+	tic = timer()
+		
 	N, __ = goals.shape
 	paths = []
 	#import pdb; pdb.set_trace()
@@ -270,14 +294,18 @@ def FindPathBetweenGoals(G, goals):
 			print('Could not find any path between %s to %s' %(start_label, finish_label))
 			#import pdb; pdb.set_trace()
 			paths.append([])
-			
+
+	toc = timer()
+	print('Find shortest path (Dijkstra Graph search) took %f[sec]' %(toc-tic))
+	
 	return paths
 
 def GetNodeLabel(pose):
 	global W_xgrid
 	global W_ygrid
 
-	orient = int(np.round( pose[2] / (math.pi/2.0) ))  # what quadrant you're closest to
+	#import pdb; pdb.set_trace()
+	orient = int(np.round( pose[2] / (math.pi/2.0) ) % 4)  # what quadrant you're closest to
 	label = 'H' + str(orient) + 'X' + str(find_nearest(W_xgrid, pix2m*pose[0])) + \
 								'Y' + str(find_nearest(W_ygrid, pix2m*pose[1]))
 	
@@ -368,6 +396,8 @@ def plot_path(ax, G, paths, MotionPrimitives):
 	global W_xgrid
 	global W_ygrid
 
+	tic = timer()
+	
 	#import pdb; pdb.set_trace()
 	for j, path in enumerate(paths):
 		if(not paths):
@@ -403,10 +433,17 @@ def plot_path(ax, G, paths, MotionPrimitives):
 				e_center = np.array([xs, ys]) + x_rel
 				e_center = np.hstack((e_center, theta + orient*90.0*math.pi/180.0))
 				# create the ellipsoid object
+				# do I need to rotate the ellipse as well??? CHECK THIS!
 				e = gf.Ellipse(e_center, S)
 				plot_ellipsoid(ax, e, orient, color=(float(j)/float(len(paths)),0.6,0.6))
+	
+	toc = timer()
+	print('Plotting the shortest path took %f[sec]' %(toc-tic))
 
 def CreateSlugsInputFile(G, goals, MP, filename='map_funnel'):
+	
+	tic = timer()
+	
 	Nnodes = nx.number_of_nodes(G)
 	Nedges = nx.number_of_edges(G)
 	
@@ -416,6 +453,8 @@ def CreateSlugsInputFile(G, goals, MP, filename='map_funnel'):
 	print('Creating to structured slugs file ...')
 	
 	N, __ = goals.shape
+	print('Start at: %s' %(GetNodeLabel(goals[0, :])))
+	
 	for i in range(N):
 		start = goals[i, :]
 		if(i == N-1):
@@ -424,6 +463,7 @@ def CreateSlugsInputFile(G, goals, MP, filename='map_funnel'):
 			finish = goals[i+1, :]
 		start_label.append(GetNodeLabel(start))
 		finish_label.append(GetNodeLabel(finish))
+		print('Then go to: %s' %(finish_label[-1]))
 	
 	map_label_2_bit = {}
 	node_count = 0
@@ -499,108 +539,103 @@ def CreateSlugsInputFile(G, goals, MP, filename='map_funnel'):
 	slugscomp.performConversion(filename + '.structuredslugs', False)
 	sys.stdout = sys.__stdout__  # convert back to printing on screen
 	print('done.')
+	
+	dbfile = open(filename + '.label2bit', 'wb')
+	dill.dump(map_label_2_bit, dbfile)
+	dbfile.close()
+	
+	toc = timer()
+	print('Creating structuredslugs & converting to slugsin file took %f[sec]' %(toc-tic))
+	
 	return map_label_2_bit
 
-def RunSlugs(filename='map_funnel'):
+def SynthesizeController(filename='map_funnel'):
+	tic = timer()
+	
 	slugsLink = '/home/cornell/Tools/slugs/src/slugs'
 	specFile  = filename + '.slugsin'
 	
 	#--interactiveStrategy
 	slugsProcess = subprocess.Popen(slugsLink + ' --explicitStrategy --jsonOutput ' + specFile, \
 									shell=True, bufsize=1048000, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-	import pdb; pdb.set_trace()
-	# Get input APs
-	slugsProcess.stdin.write("XPRINTINPUTS\n")
-	slugsProcess.stdin.flush()
-	slugsProcess.stdout.readline() # Skip the prompt
-	lastLine = " "
-	inputAPs = []
-	while (lastLine!=""):
-		lastLine = slugsProcess.stdout.readline().strip()
-		if lastLine!="":
-			inputAPs.append(lastLine)
 
-	# Get output APs
-	slugsProcess.stdin.write("XPRINTOUTPUTS\n")
+	#slugsProcess.stdin.write("XPRINTINPUTS\n")
 	slugsProcess.stdin.flush()
 	slugsProcess.stdout.readline() # Skip the prompt
 	lastLine = " "
-	outputAPs = []
-	while (lastLine!=""):
+	inputAPs = '{ '
+	while (lastLine!="}}"):
 		lastLine = slugsProcess.stdout.readline().strip()
 		if lastLine!="":
-			outputAPs.append(lastLine)
+			inputAPs = inputAPs + ' ' + lastLine
+	
+	#import pdb; pdb.set_trace()
+	controller = json.loads(inputAPs)
+	with open(filename + '.json', "w") as write_file:
+		json.dump(controller, write_file)
+	
+	toc = timer()
+	print('Synthesizing control via slugs took %f[sec]' %(toc-tic))
+	
+	return controller
+
+def GetSpecificControl(C, map_bit_2_label, debug=True):
+	tic = timer()
+	
+	trans = 0
+	actions_count = 0
+	var = C['variables']
+	states = []
+	mps = []
+	
+	for v in reversed(var):
+		if 'mp' in v:
+			actions_count += 1
+		else:
+			break;
+	state_count = len(var) - actions_count
+	
+	cntr = 1
+	break_on_next_loop = 0
+	while True:
+		in_state = C['nodes'][str(trans)]
+		state = in_state['state']
+		# it comes in reverse binary
+		action_str = state[::-1][0:actions_count]
+		action = 0
+		for b in action_str:
+			action = 2 * action + b
+		mps.append(action)
+		
+		cur_state_str = state[::-1][actions_count:]
+		cur_state = 0
+		for b in cur_state_str:
+			cur_state = 2 * cur_state + b
+		
+		states.append(map_bit_2_label[cur_state])
+		if(debug):
+			print('%d) In state: %s, take motion primitive: %d' %(cntr, states[-1], action))
+		
+		trans = in_state['trans'][0]
+		if(break_on_next_loop):
+			break;
 			
-	# ==================================
-	# Parse input and output bits into structured form
-	# ==================================
-	structuredVariables = []
-	structuredVariablesBitPositions = []
-	structuredVariablesMin = []
-	structuredVariablesMax = []
-	structuredVariablesIsOutput = []
+		if (trans == 0):
+			# we've looped
+			break_on_next_loop = 1
+		
+		cntr += 1
 
-	for (isOutput,source,startIndex) in [(False,inputAPs,0),(True,outputAPs,len(inputAPs))]:
-		# First pass: Find the limits of all integer variables
-		for i,a in enumerate(source):
-			if "@" in a:
-				# is Structured
-				(varName,suffix) = a.split("@")
-				if "." in suffix:
-					# Is a master variable
-					(varNum,minimum,maximum) = suffix.split(".")
-					assert varNum=="0"
-					structuredVariables.append(varName)    
-					structuredVariablesBitPositions.append({0:i+startIndex})
-					structuredVariablesMin.append(int(minimum))
-					structuredVariablesMax.append(int(maximum))
-					structuredVariablesIsOutput.append(isOutput)
-
-		# Second pass: parse all other variables
-		for i,a in enumerate(source):
-			if "@" in a:
-				(varName,suffix) = a.split("@")
-				if not "." in suffix:
-					# Is a slave variable
-					indexFound = False
-					for j,b in enumerate(structuredVariables):
-						if b==varName:
-							indexFound=j
-					if indexFound==None:
-						print >>sys.stderr,"Error in input instance: Master variables have \
-											to occur before the slave variables in the input file.\n"
-						sys.exit(1)
-					assert structuredVariablesIsOutput[indexFound]==isOutput
-					structuredVariablesBitPositions[indexFound][int(suffix)] = i+startIndex
-			else:
-				# is Unstructured
-				structuredVariables.append(a)    
-				structuredVariablesBitPositions.append({0:i+startIndex})
-				structuredVariablesMin.append(0)
-				structuredVariablesMax.append(1)
-				structuredVariablesIsOutput.append(isOutput)
+	if(debug):
+		print('Go back to step 1)')
 	
-	# ==================================
-	# Prepare visualization
-	# ==================================
-	print "Out:",structuredVariables
-	print "Out:",structuredVariablesBitPositions
-	print "Out:",structuredVariablesMin
-	print "Out:",structuredVariablesMax
-	print "Out:",structuredVariablesIsOutput
-
-	print "inputAPs:",inputAPs
-	print "outputAPs:",outputAPs
-
-	maxLenInputOrOutputName = 15 # Minimium size
-	for a in structuredVariables:
-		maxLenInputOrOutputName = max(maxLenInputOrOutputName,len(a))
-	if len(structuredVariables)==0:
-		print >>sys.stderr, "Error: No variables found.\n"
-		sys.exit(1)
+	toc = timer()
+	if(debug):
+		print('Extracting plan (from slugs) took %f[sec]' %(toc-tic))
 	
-	
-				
+	return states, mps
+
+
 def SaveGraphToFile(G, filename):
 	nx.write_gpickle(G, filename + '.pickle')
 
@@ -642,71 +677,27 @@ def plot_ellipse(ax, A, x0, orient):
 	ax.fill(X[0, :]+x0[0], X[1, :]+x0[1], color=clr)
 
 if __name__ == "__main__":
-	map_kind = 'none' #'raymond')
+	map_kind = 'none' 
+	#map_kind = 'raymond'
 	MP = LoadMP(fName='MPLibrary.lib')
 	workspace, obs, goals = ReplicateMap(map_kind=map_kind) #
 	
 	DiGraph, ax = PopulateMapWithMP(MP, workspace, obs, map_kind, cell_h=cell, cell_w=cell)
 	path = FindPathBetweenGoals(DiGraph, goals)
+	# create the amount of jackals you want
+	RU.CreateJackals([pix2m*goals[0]])
+	#import pdb; pdb.set_trace()
+	
 	plot_path(ax, DiGraph, path, MP)
 	#import pdb; pdb.set_trace()
 	map_label_2_bit = CreateSlugsInputFile(DiGraph, goals, MP, filename='map_funnel')
-	RunSlugs(filename='map_funnel')
+	# the reverse dictionary is useful
+	map_bit_2_label = dict((v, k) for k, v in map_label_2_bit.items())
+	
+	synctrl = SynthesizeController(filename='map_funnel')
+	GetSpecificControl(synctrl, map_bit_2_label)
 	
 	plt.show(block=True)
 	
 
 							 
-							 
-'''	
-	with open(filename + '.smv', 'w') as f: 
-		f.write('-- Skeleton SMV file\n')
-		f.write('-- (Generated by warehouse_map.py)\n')
-		f.write('\n\n')
-		f.write('MODULE main\n')
-		f.write('\tVAR')
-		f.write('\t\te : env();\n')
-		f.write('\t\ts : sys();\n')
-		f.write('\n')
-		f.write('MODULE env -- inputs\n')
-		f.write('\tVAR\n')
-		f.write('\t\tsee_player : boolean;\n')
-		f.write('\t\thear_whistle : boolean;\n')
-		f.write('\t\thear_counting : boolean;\n')
-		f.write('\n')
-		f.write('MODULE sys -- outputs\n')
-		f.write('\tVAR\n')
-		f.write('\t\tcount : boolean;\n')
-		f.write('\t\twhistle : boolean;\n')
-		f.write('\t\thide : boolean;\n')
-		f.write('\t\tsay_foundyou : boolean;\n')
-		f.write('\t\tsay_imfound : boolean;\n')
-		f.write('\t\tsay_hider : boolean;\n')
-		f.write('\t\tsay_seeker : boolean;\n')
-		f.write('\t\tseeker : boolean;\n')
-		f.write('\t\tplaying : boolean;\n')
-		f.write('\t\tbit0 : boolean;\n')
-		f.write('\t\tbit1 : boolean;\n')
-		f.write('\t\tbit2 : boolean;\n')
-		f.write('\t\tbit3 : boolean;\n')
-		f.write('\t\tbit4 : boolean;\n')
-		
-	with open(filename + '.ltl', 'w') as f: 	
-		f.write('-- LTL specification file\n')
-		f.write('-- (Generated by the LTLMoP toolkit)\n')
-		f.write('\n')
-		f.write('LTLSPEC -- Assumptions\n')
-		f.write('\t(\n')
-		f.write('\t\tTRUE & \n')
-		f.write('\t\t[](TRUE) & \n')
-		f.write('\t\t[]<>(TRUE)\n')
-		f.write('\t);\n')
-		f.write('\n')
-		f.write('LTLSPEC -- Guarantees\n')
-		f.write('\t(\n')
-		f.write('[]<>(')
-		for goal in start_label:
-			f.write('!s.bit0 & s.bit1 & !s.bit2 & !s.bit3))) \n')
-		
-		f.write('\t);\n')
-'''

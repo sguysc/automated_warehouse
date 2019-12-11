@@ -110,9 +110,11 @@ def CreateFunnels():
 		#times = xtraj.get_segment_times()
 		times = np.linspace(utraj.start_time(), utraj.end_time(), len(V))
 		xcenter = []
+		unom    = []
 		for i in range(len(times)):
 			x0 = xtraj.value(times[i]).transpose()[0]
 			xcenter.append(x0)
+			unom.append(utraj.value(times[i]).transpose()[0])
 			plant.my_plot_sublevelset_expression(ax1, V[i], x0, color=(0.1, idx/10.+.2,0.8))
 		
 		x = list(V[0].GetVariables())
@@ -124,6 +126,7 @@ def CreateFunnels():
 		mp.update({'V': V_matrix})
 		mp.update({'K': K})
 		mp.update({'xcenter': xcenter})
+		mp.update({'unom': unom})
 		#mp.update({'utraj': utraj})
 		#mp.update({'t': times})
 
