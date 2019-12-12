@@ -48,7 +48,26 @@ def LoadMP(fName='MPLibrary.lib'):
 	MotionPrimitives = dill.load(dbfile)
 	dbfile.close()
 	return MotionPrimitives
-	
+
+def GetRotmat(orient):
+	# axes are as follows: X positive = south, Y positive = East
+	#  X |  Y -->
+	#    V
+	# orient corresponds to (S, E, N, W)
+	if(orient == 0):
+		rotmat = np.array([[1.,0.], [0.,1.]])
+	elif(orient == 1):
+		rotmat = np.array([[0.,-1.], [1.,0.]])
+	elif(orient == 2):
+		rotmat = np.array([[-1.,0.], [0.,-1.]])
+	elif((orient == 3) or (orient == -1)):
+		rotmat = np.array([[0.,1.], [-1.,0.]])
+	else:
+		print('bad orientation parameter')
+			
+	return rotmat
+
+# add connections between grid points using motion primitives if they do not collide with any obstacle
 def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, cell_w=1.25):
 	global W_Width
 	global W_xgrid
@@ -78,21 +97,20 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 		obstacles.append(v)
 	# create the world map for gazebo simulation
 	RU.CreateCustomMapWorld(map_kind, bounds, obstacles)
-	import 	pdb; pdb.set_trace()
+	#import 	pdb; pdb.set_trace()
 	
-	if(glob.glob(map_kind + '.*')):
+	if(glob.glob(map_kind + '.pickle')):
 		# if it already exist, save time re-creating the graph
 		G = LoadGraphFromFile(map_kind)
 		toc = timer()
-		print('Motion primitives file exist, so just loading (%f[sec])' %(toc-tic))
+		print('Motion primitives file exist, so just loading existing (%f[sec])' %(toc-tic))
 		return G, ax
 
-	#possible_orientations = {0: 0.*math.pi/180.0, 1: 90.*math.pi/180.0, 2: 180.*math.pi/180.0, 3: 270.*math.pi/180.0}
-	
 	total_count = 0
 	G = nx.DiGraph(name='ConnectivityGraph')
 	for orient in range(4): #corresponds to (E, N, W, S)
 		# rotate the motion primitives according to initial position
+		'''
 		if(orient == 0):
 			rotmat = np.array([[0.,-1.], [1.,0.]])
 		elif(orient == 1):
@@ -101,18 +119,19 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 			rotmat = np.array([[0.,1.], [-1.,0.]])
 		else:
 			rotmat = np.array([[1.,0.], [0.,1.]])
+		'''
+		rotmat = GetRotmat(orient)
 
 		#import pdb; pdb.set_trace()
 		for i, x in enumerate(X):
 			for j, y in enumerate(Y):
 				for key, mp in MotionPrimitives.items():
 					#import pdb; pdb.set_trace()
-					#if(i==1 and j==1):
-					#	import pdb; pdb.set_trace()
 					connect2  = np.array([[ mp['e'][0]-mp['s'][0] ], \
 								          [ mp['e'][1]-mp['s'][1] ]])
-					connect2  = rotmat.dot( connect2 ) # fixed to true orientation
-					toLoc     =  np.array([[x], [y]]) + connect2
+					# rotate to global coordinate system
+					connect2  = rotmat.dot( connect2 ) 
+					toLoc     = np.array([[x], [y]]) + connect2
 					# check if funnel is in bounds and does not collide with any obstacle
 					if(IsPathFree(workspace, mp, obs, rotmat, orient, x, y, toLoc[0], toLoc[1], \
 								  X[0], X[-1], Y[0], Y[-1], ax )):
@@ -143,7 +162,7 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 # taking into account the width of the funnels
 def IsPathFree(workspace, mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, ymax, ax):
 	global pix2m
-	# check if you're not going out of bounds (doesn't account for a U-turn!)
+	# check if you're not going out of bounds (it's fast, but doesn't account for a U-turn!)
 	if( (xe < xmin) or (xe > xmax) ):
 		return False
 	if( (ye < ymin) or (ye > ymax) ):
@@ -154,7 +173,7 @@ def IsPathFree(workspace, mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, x
 		
 	for i, S in enumerate(mp['V']):
 		#import pdb; pdb.set_trace()
-		# in motion primitive's normalized coordinates
+		# in motion primitive's relative coordinates
 		x_rel = mp['xcenter'][i]
 		# move it to account for current orientation
 		theta = x_rel[2]
@@ -192,6 +211,7 @@ def IsPathFree(workspace, mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, x
 			
 	return True
 
+# this will be loading coordinates of a map from a file in the future
 def ReplicateMap(map_kind = 'none'):
 	global W_Height
 	global W_Width
@@ -236,7 +256,7 @@ def ReplicateMap(map_kind = 'none'):
 		obs.append( box( 564.0,  830.0, 690.0, 1032.0 ) ) # don't enter zone, in pixels
 		obs.append( box( 537.0,  464.0, 690.0,  723.0 ) ) # don't enter zone, in pixels
 		
-		goals = np.array([[670., 90., 0.0], [200., 990., -90.0*math.pi/180.0]])
+		goals = np.array([[670., 90., 90.0*math.pi/180.0], [200., 990., 0.0*math.pi/180.0]])
 		
 		W_Height = 233.0 * ft2m # [m]
 		W_Width  = 434.0 * ft2m # [m]
@@ -258,18 +278,18 @@ def ReplicateMap(map_kind = 'none'):
 		obs = []
 		obs.append( box( 30.0, 60.0, 50.0,  140.0 ) ) # rack, in pixels
 		
-		goals = np.array([[70., 70., 0.0], \
-						  [10., 120., 180.0*math.pi/180.0]])
+		goals = np.array([[70., 70., 90.0*math.pi/180.0], \
+						  [10., 120., -90.0*math.pi/180.0]])
 		
 		W_Height = 20.0 # [m]
 		W_Width  = 40.0 # [m]
 		
-	#import pdb; pdb.set_trace()
 	toc = timer()
 	print('Loading map took %f[sec]' %(toc-tic))
-	
 	return workspace, obs, goals
 
+# finds a path between each goal using graph search just because it's so much
+# faster than slugs so we can immediatley alert the user that the path is infeasible
 def FindPathBetweenGoals(G, goals):
 	global pix2m
 	global cell
@@ -278,7 +298,7 @@ def FindPathBetweenGoals(G, goals):
 		
 	N, __ = goals.shape
 	paths = []
-	#import pdb; pdb.set_trace()
+
 	for i in range(N):
 		start = goals[i, :]
 		if(i == N-1):
@@ -292,35 +312,36 @@ def FindPathBetweenGoals(G, goals):
 			paths.append( nx.dijkstra_path(G, source=start_label, target=finish_label, weight='weight') ) #shortest_path
 		except:
 			print('Could not find any path between %s to %s' %(start_label, finish_label))
-			#import pdb; pdb.set_trace()
 			paths.append([])
 
 	toc = timer()
 	print('Find shortest path (Dijkstra Graph search) took %f[sec]' %(toc-tic))
-	
 	return paths
 
+# conversion from arbitrary location on map to the closest funnel (location & orientation)
 def GetNodeLabel(pose):
 	global W_xgrid
 	global W_ygrid
 
-	#import pdb; pdb.set_trace()
 	orient = int(np.round( pose[2] / (math.pi/2.0) ) % 4)  # what quadrant you're closest to
 	label = 'H' + str(orient) + 'X' + str(find_nearest(W_xgrid, pix2m*pose[0])) + \
 								'Y' + str(find_nearest(W_ygrid, pix2m*pose[1]))
 	
 	return label
 
+# utility function to find the closest grid point
 def find_nearest(arr, value):
 	arr = np.asarray(arr)
 	idx = (np.abs(arr - value)).argmin()
 	return idx
-	
+
+# visualize the graph edges
 def PlotGraph(G):
 	pos=nx.spring_layout(G, iterations=10)
 	nx.draw(G,pos,edgelist=G.edges(),node_size=50,with_labels=False)
 	plt.show()
 
+# plots the workspace and obstacles in 3D
 def plot_map(workspace, obstacles):
 	global pix2m
 	# plot map, obstacles, ...
@@ -352,6 +373,7 @@ def plot_map(workspace, obstacles):
 
 	return ax
 
+# plots a single ellipsoid in 3D
 def plot_ellipsoid(ax, ellipse, orient, color=None): 
 	A = ellipse.M
 	center = ellipse.center
@@ -387,18 +409,15 @@ def plot_ellipsoid(ax, ellipse, orient, color=None):
 	else:
 		clr = color
 	# plot ellipse
-	ax.plot_wireframe(x, y, z,  rstride=4, cstride=4, color=clr, alpha=0.2)
+	ax.plot_wireframe(x, y, z,  rcount=6, ccount=6, color=clr, alpha=0.2) #rstride=4, cstride=4
 
-	#plt.show() #block = False)
-	#plt.pause(0.05)	
-
+# plots the entire sequence leading between goal points
 def plot_path(ax, G, paths, MotionPrimitives):
 	global W_xgrid
 	global W_ygrid
 
 	tic = timer()
 	
-	#import pdb; pdb.set_trace()
 	for j, path in enumerate(paths):
 		if(not paths):
 			# no path exists between these two points
@@ -413,6 +432,7 @@ def plot_path(ax, G, paths, MotionPrimitives):
 			xs = W_xgrid[xs] 
 			ys = W_ygrid[ys]
 			
+			'''
 			if(orient == 0):
 				rotmat = np.array([[0.,-1.], [1.,0.]])
 			elif(orient == 1):
@@ -421,7 +441,8 @@ def plot_path(ax, G, paths, MotionPrimitives):
 				rotmat = np.array([[0.,1.], [-1.,0.]])
 			else:
 				rotmat = np.array([[1.,0.], [0.,1.]])
-
+			'''
+			rotmat = GetRotmat(orient)
 			# just so it would look nice in plots
 			if(orient == 3):
 				orient = -1
@@ -440,6 +461,7 @@ def plot_path(ax, G, paths, MotionPrimitives):
 	toc = timer()
 	print('Plotting the shortest path took %f[sec]' %(toc-tic))
 
+# generates the specification file for slugs
 def CreateSlugsInputFile(G, goals, MP, filename='map_funnel'):
 	
 	tic = timer()
@@ -453,7 +475,7 @@ def CreateSlugsInputFile(G, goals, MP, filename='map_funnel'):
 	print('Creating to structured slugs file ...')
 	
 	N, __ = goals.shape
-	print('Start at: %s' %(GetNodeLabel(goals[0, :])))
+	#print('Start at: %s' %(GetNodeLabel(goals[0, :])))
 	
 	for i in range(N):
 		start = goals[i, :]
@@ -463,14 +485,15 @@ def CreateSlugsInputFile(G, goals, MP, filename='map_funnel'):
 			finish = goals[i+1, :]
 		start_label.append(GetNodeLabel(start))
 		finish_label.append(GetNodeLabel(finish))
-		print('Then go to: %s' %(finish_label[-1]))
+		#print('Then go to: %s' %(finish_label[-1]))
 	
 	map_label_2_bit = {}
 	node_count = 0
-	#import pdb; pdb.set_trace()
 	for node in G:
 		map_label_2_bit.update({node: node_count})
-		node_count = node_count + 1
+		node_count += 1
+		## this was an attempt to not include nodes that don't have children (dead-ends)
+		## but it needs to be handled with care. doesn't work at the moment
 		#children = G.neighbors(node) #list of successor nodes of parent
 		#if(children.__length_hint__()>0):
 		#	map_label_2_bit.update({node: node_count})
@@ -549,6 +572,7 @@ def CreateSlugsInputFile(G, goals, MP, filename='map_funnel'):
 	
 	return map_label_2_bit
 
+# get a complete synthesized controller for our spec.
 def SynthesizeController(filename='map_funnel'):
 	tic = timer()
 	
@@ -579,6 +603,7 @@ def SynthesizeController(filename='map_funnel'):
 	
 	return controller
 
+# decipher the sequence of moves to satisfy spec.
 def GetSpecificControl(C, map_bit_2_label, debug=True):
 	tic = timer()
 	
@@ -641,7 +666,8 @@ def SaveGraphToFile(G, filename):
 
 def LoadGraphFromFile(filename):
 	return nx.read_gpickle(filename + '.pickle')
-	
+
+# not currently in use
 def plot_ellipse(ax, A, x0, orient):
 	vertices = 51
 	
@@ -685,8 +711,8 @@ if __name__ == "__main__":
 	DiGraph, ax = PopulateMapWithMP(MP, workspace, obs, map_kind, cell_h=cell, cell_w=cell)
 	path = FindPathBetweenGoals(DiGraph, goals)
 	# create the amount of jackals you want
-	RU.CreateJackals([pix2m*goals[0]])
-	#import pdb; pdb.set_trace()
+	RU.CreateJackals([[pix2m*goals[0][0], pix2m*goals[0][1], goals[0][2]]])
+	import pdb; pdb.set_trace()
 	
 	plot_path(ax, DiGraph, path, MP)
 	#import pdb; pdb.set_trace()
@@ -696,7 +722,7 @@ if __name__ == "__main__":
 	
 	synctrl = SynthesizeController(filename='map_funnel')
 	GetSpecificControl(synctrl, map_bit_2_label)
-	
+	print('Done. Close figure to exit.')
 	plt.show(block=True)
 	
 

@@ -981,7 +981,7 @@ def CreateJackals(IC=[[0.0,0.0,0.0]]):
 			f.write('    <arg name="use_global_ekf" value="true"/>\n')
 			f.write('    <arg name="x"             value="%f"/>\n' %(IC[i][0]))
 			f.write('    <arg name="y"             value="%f"/>\n' %(IC[i][1]))
-			f.write('    <arg name="yaw"           value="%f"/>\n' %(IC[i][2] + np.pi/2.0)) #to match axes of gazebo
+			f.write('    <arg name="yaw"           value="%f"/>\n' %(IC[i][2])) #to match axes of gazebo
 			f.write('  </include>\n')
 		f.write('  \n')
 		f.write('  <!-- View in RVIZ. -->\n')
