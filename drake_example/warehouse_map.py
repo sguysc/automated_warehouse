@@ -16,7 +16,7 @@ import networkx as nx
 
 from numpy import linalg as LA
 from shapely.geometry import Polygon, box
-
+#from mayavi import mlab
 
 from StructuredSlugsParser import compiler as slugscomp
 
@@ -410,6 +410,7 @@ def plot_ellipsoid(ax, ellipse, orient, color=None):
 		clr = color
 	# plot ellipse
 	ax.plot_wireframe(x, y, z,  rcount=6, ccount=6, color=clr, alpha=0.2) #rstride=4, cstride=4
+	#mlab.mesh(x, y, z) 
 
 # plots the entire sequence leading between goal points
 def plot_path(ax, G, paths, MotionPrimitives):

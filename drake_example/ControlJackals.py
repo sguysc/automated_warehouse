@@ -62,15 +62,23 @@ class Jackal:
 		self.K     = self.mps[self.actions[self.curr_state] ]['K'][self.curr_ell]
 		self.x_ref = self.ConvertRelPos2Global(self.mps[self.actions[self.curr_state] ]['xcenter'][self.curr_ell], \
 										self.states[self.curr_state])
+		self.x_ref_hires = self.mps[self.actions[self.curr_state] ]['xtraj']
 		#import pdb; pdb.set_trace()
 		self.u_ref = self.mps[self.actions[self.curr_state] ]['unom'][self.curr_ell]
-		import pdb; pdb.set_trace()
+		self.u_ref_hires = self.mps[self.actions[self.curr_state] ]['utraj']
+		#import pdb; pdb.set_trace()
 		# handle the ROS topics
 		# get data
 		self.sensors_sub = rospy.Subscriber('/gazebo/model_states', ModelStates, self.measurement_cb)
 		# send commands
 		self.control_pub = rospy.Publisher('/jackal%d/jackal_velocity_controller/cmd_vel' %self.idx, Twist, queue_size=1)
-		self.control(self.K, self.x_ref, self.u_ref, do_calc=False) #send a 0 for the first time!
+		if(True):
+			xinterp, yinterp = self.GetClosestInterpPoint(self.x_ref_hires, self.states[self.curr_state])
+		else:
+			xinterp = self.x_ref
+			uinterp = self.u_ref
+			
+		self.control(self.K, xinterp, yinterp, do_calc=False) #send a 0 for the first time!
 		
 		self.timer = 0
 
@@ -94,7 +102,13 @@ class Jackal:
 		
 		# do control and call the robot (you first execute the control for the given ellipse you're in,
 		# only then, you see if you're at a new funnel/knot point and switch controls)
-		self.control(self.K, self.x_ref, self.u_ref, do_calc=self.do_calc)
+		if(True):
+			xinterp, yinterp = self.GetClosestInterpPoint(self.x_ref_hires, self.states[self.curr_state])
+		else:
+			xinterp = self.x_ref
+			uinterp = self.u_ref
+
+		self.control(self.K, xinterp, yinterp, do_calc=self.do_calc)
 		self.do_calc = False
 
 		# check if we're in the next ellipse on the same funnel
@@ -114,6 +128,8 @@ class Jackal:
 					self.x_ref = self.ConvertRelPos2Global(self.mps[self.actions[self.curr_state] ]['xcenter'][next_ell], \
 												self.states[self.curr_state])
 					self.u_ref = self.mps[self.actions[self.curr_state] ]['unom'][next_ell]
+					self.x_ref_hires = self.mps[self.actions[self.curr_state] ]['xtraj']
+					self.u_ref_hires = self.mps[self.actions[self.curr_state] ]['utraj']
 					self.curr_ell = next_ell
 					self.do_calc = True
 					self.timer = self.msg_num
@@ -142,6 +158,8 @@ class Jackal:
 			self.x_ref = self.ConvertRelPos2Global(self.mps[self.actions[self.curr_state] ]['xcenter'][self.curr_ell], \
 										self.states[self.curr_state])
 			self.u_ref = self.mps[self.actions[self.curr_state] ]['unom'][self.curr_ell]
+			self.x_ref_hires = self.mps[self.actions[self.curr_state] ]['xtraj']
+			self.u_ref_hires = self.mps[self.actions[self.curr_state] ]['utraj']
 			self.do_calc = True
 			self.timer = self.msg_num
 
@@ -220,10 +238,38 @@ class Jackal:
 		pose = np.hstack((pose, theta + orient*np.pi/2.0 )) 
 		
 		return pose
+	
+	def GetClosestInterpPoint(self, rel_poses, funnel):
+		orient, xs, ys = [int(s) for s in re.findall(r'-?\d+\.?\d*', funnel)] # extract first ellipse pose
+		xs = W_xgrid[xs]
+		ys = W_ygrid[ys]
 		
+		rotmat = GetRotmat(orient)
+		
+		if(orient == 3):
+			orient = -1
+		
+		'''
+		poses = []
+		for i in range(start_from,len(rel_poses)):
+			rel_pose = rel_poses[i]
+			theta = rel_pose[2]
+			x_rel = rotmat.dot(rel_pose[:2]) # just x,y	
+			pose = np.array([xs, ys]) + x_rel # location in the world of that ellipse
+			pose = np.hstack((pose, theta + orient*np.pi/2.0 )) 
+			poses.append(pose)
+		'''
+		theta = rel_poses[2,:]
+		x_rel = np.dot(rotmat, rel_poses[:2,:])
+		poses = np.array([[xs], [ys]]) + x_rel # location in the world of that ellipse
+		import pdb; pdb.set_trace()
+		index = np.argmin( np.linalg.norm( self.pose[:2].reshape((2,1))-poses ))
+		
+		return self.x_ref_hires[index], self.u_ref_hires[index]
+	
 	def control(self, K, x_0, u_0, do_calc=True):
-		if(do_calc):
-		#if(True):
+		#if(do_calc):
+		if(True):
 			u = u_0 - K.dot(self.pose - x_0)	
 
 			#if(u[1] < 0.0):# and (self.msg_num-self.timer > 1200 )):
@@ -245,8 +291,8 @@ class Jackal:
 			#	  								%(now.secs, now.nsecs/1E-6, \
 			#									self.pose[0],self.pose[1],self.pose[2]*180.0/np.pi, u[0], u[1], \
 			#									x_0[0],x_0[1],x_0[2]*180.0/np.pi, u_0[0], u_0[1]))
-		else:
-			u = self.u
+		#else:
+		#	u = self.u
 		
 		self.actuation(u)
 	
