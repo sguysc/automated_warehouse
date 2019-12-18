@@ -41,7 +41,8 @@ W_ygrid  = []
 #FL_L  = plant.TotalL # length of car, for a 36inch length fork, dimension B in spec.
 FL_WB  = 1.882 # wheel base, for a 36inch length fork, dimension C in spec.
 FL_W   = 0.902 # width of car, for all forklifts, dimension G in spec.
-FL_L   = 2.619 # length of car, for a 36inch length fork, dimension B in spec.
+#FL_L   = 2.619 # length of car, for a 36inch length fork, dimension B in spec.
+FL_L   = 0.42 # length of jackal
 			
 def LoadMP(fName='MPLibrary.lib'):
 	dbfile = open(fName, 'rb')
@@ -143,6 +144,9 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 						# turning around would be more expensive than going straight (motion 7-8 vs. motion 0).
 						# when constructing the library, the key is ranked with ascending difficulty
 						difficulty_factor = 1.0  + key/20.0 #just a factor
+						if(key>6):
+							difficulty_factor = difficulty_factor*5
+							
 						G.add_edge( 'H' + str(int(orient)) + 'X' + str(i) + 'Y' + str(j), \
 								    'H' + str(int(toRot)) + 'X' + str(i+int(connect2[0][0])) + 'Y' + str(j+int(connect2[1][0])), \
 								    weight=LA.norm(connect2)*difficulty_factor, motion=key, index=total_count )
@@ -366,7 +370,7 @@ def plot_map(workspace, obstacles):
 	ax.set_xlabel('X [m]')
 	ax.set_ylabel('Y [m]')
 	ax.set_zlabel('$\Theta$ [Rad]')
-
+	ax.set_title(r'Workspace, X-Y-$\theta$, 3D view')
 	ax.set_aspect("equal")
 	plt.show(block = False)
 	plt.pause(0.05)
@@ -713,7 +717,7 @@ if __name__ == "__main__":
 	path = FindPathBetweenGoals(DiGraph, goals)
 	# create the amount of jackals you want
 	RU.CreateJackals([[pix2m*goals[0][0], pix2m*goals[0][1], goals[0][2]]])
-	import pdb; pdb.set_trace()
+	#import pdb; pdb.set_trace()
 	
 	plot_path(ax, DiGraph, path, MP)
 	#import pdb; pdb.set_trace()

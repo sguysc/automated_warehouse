@@ -40,7 +40,7 @@ def DubinsCarPlant_(T):
 			# three positions, no velocities
 			self.DeclareContinuousState(self.nX, 0, 0)
 
-			self.knotPoints = 5
+			self.knotPoints = 6
 			#self.knotPoints = 4
 			self.ex_knots = self.knotPoints
 			
@@ -48,12 +48,14 @@ def DubinsCarPlant_(T):
 			# "Tow tractor and Center rider Vehicle Limits Rev1.docx"
 			#self.L = 1.0 #length of car, for a 36inch length fork, dimension C in spec.
 			# forklift 3010
-			self.L      = 1.882 # wheel base, for a 36inch length fork, dimension C in spec.
+			#self.L      = 1.882 # wheel base, for a 36inch length fork, dimension C in spec.
+			self.L      = 0.42 # Jackal
 			self.TotalW = 0.902 # width of car, for all forklifts, dimension G in spec.
 			self.TotalL = 2.619 # length of car, for a 36inch length fork, dimension B in spec.
 			self.CG_B   = 0.425 # Bumper to Drive Tire Center , for a 36inch length fork, dimension L in spec.
 			self.CG_F   = self.TotalL-self.CG_B # tire center to front, dimension B-L in spec.
-			self.umax   = 2.6 * 1.6 * 1000.0 / 3600.0  # mph -> m/sec     5.0
+			#self.umax   = 2.6 * 1.6 * 1000.0 / 3600.0  # mph -> m/sec     5.0
+			self.umax   = 1.0  # jackal m/sec     5.0
 			self.delmax = 80.0*math.pi/180.0  #rad   30.0 80
 			self.usat   = np.array([ [-self.delmax, self.delmax], \
 									 [ 0.0, self.umax] ]) 
@@ -1522,7 +1524,7 @@ def runFunnel():
 	#x0 = (0.0, 0.0, 0.0)
 	#xf = (0.0, 4.0, 180.0*math.pi/180.0)
 	x0 = (0.0, 0.0, 0.0)
-	xf = (1.25, 0.0, 0.0*math.pi/180.0)
+	xf = (0.00,  2.50,  180.0*math.pi/180.0)
 	dist = np.linalg.norm(np.array(xf)-np.array(x0))
 	tf0 = dist/(plant.umax*0.8) # Guess for how long trajectory should take
 	#tf0 = 2.4
