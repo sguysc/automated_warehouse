@@ -13,9 +13,13 @@ from warehouse_map import LoadMP, GetSpecificControl, cell, find_nearest, GetRot
 
 # ROS stuff
 import rospy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, TransformStamped, Vector3Stamped
 from gazebo_msgs.msg import ModelStates
-from tf.transformations import euler_from_quaternion
+from tf.transformations import euler_from_quaternion, quaternion_inverse
+from tf2_geometry_msgs import do_transform_vector3
+
+ROBOT_TYPE = 'JACKAL'
+#ROBOT_TYPE = 'TURTLEBOT'
 
 SYNTH_AUTOMATA_FILE = 'map_funnel.json'
 MP_MAP_FILE = 'none.pickle'
@@ -26,7 +30,8 @@ bounds = np.array([ 0.,  0., 20., 40.])
 W_xgrid = np.arange(bounds[0]+cell, bounds[2]-cell, cell)
 W_ygrid = np.arange(bounds[1]+cell, bounds[3]-cell, cell)
 #umax    = 2.6 * 1.6 * 1000.0 / 3600.0  # mph -> m/sec     5.0
-umax    = .3  # jackal m/sec     5.0
+#umax    = .3  # jackal m/sec     5.0
+umax    = 1.0  # jackal m/sec     5.0
 delmax  = 80.0*np.pi/180.0  #rad   30.0 80
 logger = None			
 
@@ -34,13 +39,14 @@ logger = None
 class Jackal:
 	def __init__(self, idx, aut_file=SYNTH_AUTOMATA_FILE, map_file=MP_MAP_FILE, l2b_file=LABEL2BIT_FILE):
 		self.all_topics_loaded = False
+		self.Fs = 10 # main/control loop frequency
 		self.idx = idx
 		self.msg_num = 0
 		self.pose   = np.array([14.0, 14.0, np.pi/2.0]) #None
 		self.linvel = None
 		self.rotvel = None
 		#self.L = 0.42 # for the jackal
-		self.L = FL_L*10.0 #for the forklift
+		self.L = FL_L #*15.0 #for the forklift
 		self.do_calc = True
 		self.u = np.array([0.0, 0.0]) # stores the last controls
 		
@@ -58,6 +64,7 @@ class Jackal:
 		# the reverse dictionary is useful
 		self.map_bit_2_label = dict((v, k) for k, v in self.map_label_2_bit.items())
 		self.states, self.actions = GetSpecificControl(self.automata, self.map_bit_2_label, debug=False)
+		#import pdb; pdb.set_trace()
 		for state in self.states:
 			print('R%d (%s)' %(self.map_label_2_bit[state],state))
 		self.curr_state = 0
@@ -76,9 +83,15 @@ class Jackal:
 		#
 		# handle the ROS topics
 		# send commands
-		self.control_pub = rospy.Publisher('/jackal%d/jackal_velocity_controller/cmd_vel' %self.idx, Twist, queue_size=1)
+		if('JACKAL' in ROBOT_TYPE):
+			#self.control_pub = rospy.Publisher('/jackal%d/jackal_velocity_controller/cmd_vel' %self.idx, Twist, queue_size=1) #Jackal
+			self.control_pub = rospy.Publisher('/jackal_velocity_controller/cmd_vel', Twist, queue_size=1) #Jackal
+			#self.control_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=1) #Jackal
+		elif('TURTLEBOT' in ROBOT_TYPE):
+			self.control_pub = rospy.Publisher('/mobile_base/commands/velocity', Twist, queue_size=1) #turtlebot
 		# get data
 		self.sensors_sub = rospy.Subscriber('/gazebo/model_states', ModelStates, self.measurement_cb)
+		#self.sensors_sub = rospy.Subscriber('/gazebo/default/pose/info', ModelStates, self.measurement_cb)
 		
 		if(False):
 			self.xinterp, self.uinterp = self.GetClosestInterpPoint(self.x_ref_hires, self.states[self.curr_state])
@@ -89,100 +102,122 @@ class Jackal:
 		self.control(self.K, self.xinterp, self.uinterp, do_calc=False) #send a 0 for the first time!
 		
 		self.timer = -1E6
-		self.all_topics_loaded = True
+		self.r = rospy.Rate(self.Fs)
+		
 
-	#/gazebo/model_states
+	#/gazebo/model_states. This runs in 1000Hz, so we basically just ignore most of the measurements
 	def measurement_cb(self, msg):
-		if(self.all_topics_loaded == False):
-			return
-		
+		#if(self.all_topics_loaded == False):
+		#	return
+		self.all_topics_loaded = True
+		#print(self.msg_num)
 		self.msg_num += 1
-		
+			
 		# decipher the msg comm. coming from gazebo (ground truth). later, switch to vicon in lab
-		i      = msg.name.index('jackal%d' %(self.idx))
+		if('JACKAL' in ROBOT_TYPE):
+			#i      = msg.name.index('jackal%d' %(self.idx)) # Jackal
+			i      = msg.name.index('jackal') # Jackal
+		elif('TURTLEBOT' in ROBOT_TYPE):
+			i      = msg.name.index('mobile_base') # TurtleBot
+			
 		pose   = msg.pose[i].position
-		orient = msg.pose[i].orientation
-		self.linvel = msg.twist[i].linear
+		Q = msg.pose[i].orientation
+		
+		self.linvel = self.TransformVectorToBody(msg.twist[i].linear, Q)
+		#self.linvel = msg.twist[i].linear
 		self.rotvel = msg.twist[i].angular
 		
 		# get euler angles to know heading
-		angles = euler_from_quaternion([orient.x, orient.y, orient.z, orient.w])
+		angles = euler_from_quaternion([Q.x, Q.y, Q.z, Q.w])
 		
 		# if we move quadrant, unwrap from the previous angle
 		theta = np.unwrap([self.pose[2], angles[2]])
 		# store for other uses
 		self.pose = np.array([pose.x, pose.y, theta[1]]) # (gazebo->mine axes match )
-		
-		# do control and call the robot (you first execute the control for the given ellipse you're in,
-		# only then, you see if you're at a new funnel/knot point and switch controls)
-		if(True):
-			self.xinterp, self.uinterp = self.GetClosestInterpPoint(self.x_ref_hires, self.states[self.curr_state])
-		else:
-			self.xinterp = self.x_ref
-			self.uinterp = self.u_ref
+	
+	# main loop
+	def Run(self):
+		while not self.all_topics_loaded:
+			# wait till we start to get measurements
+			self.r.sleep()
+			
+		while not rospy.is_shutdown():
+			#if(self.msg_num > 120*1000):
+			#	import pdb; pdb.set_trace()
+			# do control and call the robot (you first execute the control for the given ellipse you're in,
+			# only then, you see if you're at a new funnel/knot point and switch controls)
+			if(True):
+				self.xinterp, self.uinterp = self.GetClosestInterpPoint(self.x_ref_hires, self.states[self.curr_state])
+			else:
+				self.xinterp = self.x_ref
+				self.uinterp = self.u_ref
 
-		if(self.msg_num - self.timer < 1000):
-			#wait between funnel to funnel 1.0sec
-			# need to check if there is a possibility to break, because this just continues with inertia
-			self.control(self.K*0.0, self.xinterp, 0.0*self.uinterp, do_calc=self.do_calc)
-		else:
+			#if(self.msg_num - self.timer < 1000):
+				#wait between funnel to funnel 1.0sec
+				# need to check if there is a possibility to break, because this just continues with inertia
+			#	self.control(self.K*0.0, self.xinterp, 0.0*self.uinterp, do_calc=self.do_calc)
+			#else:
 			self.control(self.K, self.xinterp, self.uinterp, do_calc=self.do_calc)
 			self.do_calc = False
 
-		# check if we're in the next ellipse on the same funnel
-		if(self.curr_ell < self.N_ellipse - 1):
-			# because sometimes we run too fast and we're going through the ellipses in a flash
-			# this goes from the end of the funnel, backwards, to see the furthest away ellipse 
-			# that it is in
-			next_ell = self.N_ellipse - 1
-			while( next_ell > self.curr_ell ):
-				if(self.CheckEllipseCompletion(self.states[self.curr_state], \
-											   self.actions[self.curr_state], next_ell) == True):
-					self.K     = self.mps[self.actions[self.curr_state] ]['K'][next_ell]
-					self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.actions[self.curr_state] ]['xcenter'][next_ell], \
-												self.states[self.curr_state])
-					self.u_ref = self.mps[self.actions[self.curr_state] ]['unom'][next_ell]
-					# this doesn't change when we go through another ellipse
-					#self.x_ref_hires = self.mps[ self.actions[self.curr_state] ]['xtraj']
-					#self.u_ref_hires = self.mps[ self.actions[self.curr_state] ]['utraj']
-					self.curr_ell = next_ell
-					self.do_calc = True
-					#self.timer = self.msg_num
-					break;
-				next_ell -= 1
-		
-		#import pdb; pdb.set_trace()
-		# check if we're in the next funnel (and overflow when in the final one)
-		next_state = (self.curr_state + 1) if (self.curr_state < self.N_state - 1) else 0
-		if (self.CheckFunnelCompletion(self.states[next_state], self.actions[next_state]) == True):
-			rospy.loginfo('reached funnel %d (%s)' %(next_state, self.states[next_state]))
-			#we've reached the beginning of a new funnel, so update the states
-			self.curr_state = next_state
-			# sometimes the first ellipse has zero speed and it causes trouble. skip ellipses ahead
-			# it's fine because if it doesn't have controls, then it is also at the same place as first ellipse.
-			# this is usually only one ellipse. Maybe should take care of it when creating the funnels or
-			self.curr_ell = self.FindNextValidEllipse()
-			# get how many points are in this new motion primitive
-			self.N_ellipse = len(self.mps[ self.actions[self.curr_state] ]['V'])
-			self.K     = self.mps[self.actions[self.curr_state] ]['K'][self.curr_ell]
-			self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.actions[self.curr_state] ]['xcenter'][self.curr_ell], \
-										self.states[self.curr_state])
-			self.u_ref = self.mps[self.actions[self.curr_state] ]['unom'][self.curr_ell]
-			self.x_ref_hires = self.mps[ self.actions[self.curr_state] ]['xtraj']
-			self.u_ref_hires = self.mps[ self.actions[self.curr_state] ]['utraj']
-			self.do_calc = True
-			self.timer = self.msg_num
+			# check if we're in the next ellipse on the same funnel
+			if(self.curr_ell < self.N_ellipse - 1):
+				# because sometimes we run too fast and we're going through the ellipses in a flash
+				# this goes from the end of the funnel, backwards, to see the furthest away ellipse 
+				# that it is in
+				next_ell = self.N_ellipse - 1
+				while( next_ell > self.curr_ell ):
+					if(self.CheckEllipseCompletion(self.states[self.curr_state], \
+												   self.actions[self.curr_state], next_ell) == True):
+						self.K     = self.mps[self.actions[self.curr_state] ]['K'][next_ell]
+						self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.actions[self.curr_state] ]['xcenter'][next_ell], \
+													self.states[self.curr_state])
+						self.u_ref = self.mps[self.actions[self.curr_state] ]['unom'][next_ell]
+						# this doesn't change when we go through another ellipse
+						#self.x_ref_hires = self.mps[ self.actions[self.curr_state] ]['xtraj']
+						#self.u_ref_hires = self.mps[ self.actions[self.curr_state] ]['utraj']
+						self.curr_ell = next_ell
+						self.do_calc = True
+						#self.timer = self.msg_num
+						break;
+					next_ell -= 1
 
-		# output the telemetry to file
-		self.telemetry()
-		#end of main loop, 1000Hz
+			#import pdb; pdb.set_trace()
+			# check if we're in the next funnel (and overflow when in the final one)
+			next_state = (self.curr_state + 1) if (self.curr_state < self.N_state - 1) else 0
+			if (self.CheckFunnelCompletion(self.states[next_state], self.actions[next_state]) == True):
+				rospy.loginfo('reached funnel %d (%s)' %(next_state, self.states[next_state]))
+				#we've reached the beginning of a new funnel, so update the states
+				self.curr_state = next_state
+				# sometimes the first ellipse has zero speed and it causes trouble. skip ellipses ahead
+				# it's fine because if it doesn't have controls, then it is also at the same place as first ellipse.
+				# this is usually only one ellipse. Maybe should take care of it when creating the funnels or
+				self.curr_ell = self.FindNextValidEllipse()
+				# get how many points are in this new motion primitive
+				self.N_ellipse = len(self.mps[ self.actions[self.curr_state] ]['V'])
+				# update all the new motion parameters
+				self.K     = self.mps[self.actions[self.curr_state] ]['K'][self.curr_ell]
+				self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.actions[self.curr_state] ]['xcenter'][self.curr_ell], \
+											self.states[self.curr_state])
+				self.u_ref = self.mps[self.actions[self.curr_state] ]['unom'][self.curr_ell]
+				self.x_ref_hires = self.mps[ self.actions[self.curr_state] ]['xtraj']
+				self.u_ref_hires = self.mps[ self.actions[self.curr_state] ]['utraj']
+				self.do_calc = True
+				self.timer = self.msg_num
+
+			# output the telemetry to file
+			#print(':%d' %(self.msg_num))
+			self.telemetry()
+			self.r.sleep()
+		#end of main loop, Fs [Hz]
 
 	def telemetry(self):
 		# telemetry
 		now = rospy.get_rostime()
 		t = now.secs + now.nsecs/1.0E9
 		#rospy.logdebug
-		logger.debug('%.3f;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%d;%d;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;' \
+		try:
+			logger.debug('%.3f;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%d;%d;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;' \
 					 '%.2f;%.2f;%.2f;%.2f;%.2f' \
 					   %(t, self.msg_num, self.pose[0], self.pose[1], self.pose[2]*180.0/np.pi, \
 						 self.x_ref[0], self.x_ref[1], self.x_ref[2]*180.0/np.pi, self.u_ref[0], self.u_ref[1], \
@@ -190,7 +225,34 @@ class Jackal:
 						self.u[0], self.u[1], self.linvel.x, self.linvel.y, self.linvel.z,\
 						self.rotvel.x, self.rotvel.y, self.rotvel.z, self.xinterp[0],self.xinterp[1],self.xinterp[2]*180.0/np.pi, \
 						self.uinterp[0],self.uinterp[1]))
+		except:
+			pass
 	
+	# rotate vectors from world frame to body frame
+	def TransformVectorToBody(self, vect, q):
+		v = Vector3Stamped()
+		v.vector.x = vect.x
+		v.vector.y = vect.y
+		v.vector.z = vect.z
+
+		t = TransformStamped()
+		
+		quaternion = np.array((q.x, q.y, q.z, q.w))
+		quat_conj = np.array((-quaternion[0], -quaternion[1], \
+							  -quaternion[2], quaternion[3]))
+		quat_inv = quat_conj / np.dot(quaternion, quaternion)
+
+
+		t.transform.rotation.x = quat_inv[0]
+		t.transform.rotation.y = quat_inv[1]
+		t.transform.rotation.z = quat_inv[2]
+		t.transform.rotation.w = quat_inv[3]
+
+		vt = do_transform_vector3(v, t)
+		
+		return vt.vector #np.array([vt.vector.x, vt.vector.y, vt.vector.z ])
+	
+	# check if a point is in a predefined ellipse
 	def CloseEnoughToNextPoint(self, funnel, action, ellipse_num, dist=0.2, ang=0.2):
 		__, ellipse_pose = self.GetCoordAndEllipseFromLabel(funnel, action, ellipse_num)
 		
@@ -202,17 +264,25 @@ class Jackal:
 		
 		return False
 	
+	# point is inside the ellipse iff (x-x0)'S(x-x0)<=0
 	def InEllipse(self, S, x0, pose=None):
-		# point is inside the ellipse iff x'Sx<=0
+		# adjust both angles to be (-pi : +pi]
+		#x0[2] = (( -x0[2] + np.pi) % (2.0 * np.pi ) - np.pi) * -1.0
 		if(pose):
-			ret = (pose-x0).dot(S.dot(pose-x0))
+			xbar = pose - x0
 		else:
-			ret = (self.pose-x0).dot(S.dot(self.pose-x0))
+			xbar = self.pose - x0
+
+		# find the smallest angle difference
+		ang_diff = (xbar[2] + np.pi) % (2*np.pi) - np.pi
+		xbar[2] = ang_diff
+		#(x-x0)'S(x-x0)<=0
+		ret = xbar.dot(S.dot(xbar))
 			
 		return (ret<=1)
 	
+	# sometimes the first ellipse has zero speed and it causes trouble. skip ellipses ahead
 	def FindNextValidEllipse(self):
-		# sometimes the first ellipse has zero speed and it causes trouble. skip ellipses ahead
 		find_non_zero = 0
 		while True:
 			if(np.linalg.norm(self.mps[self.actions[self.curr_state]]['unom'][find_non_zero]) < 0.01):
@@ -220,7 +290,8 @@ class Jackal:
 			else:
 				break
 		return find_non_zero
-		
+	
+	# check if the pose of robot is in the ellipse
 	def CheckEllipseCompletion(self, funnel, action, ellipse_num):
 		# gets the S matrix already rotated to the right global orientation
 		S, ellipse_pose = self.GetCoordAndEllipseFromLabel(funnel, action, ellipse_num)
@@ -230,18 +301,14 @@ class Jackal:
 		
 		return False
 	
+	# check if the pose of robot is in the next funnel
 	def CheckFunnelCompletion(self, funnel, action):
 		# see if we are at the first ellipse of the new funnel
-		find_non_zero = 0
-		# but, if that ellipse has close to zero controls, then check the next one
-		while True:
-			if(np.linalg.norm(self.mps[self.actions[self.curr_state]]['unom'][find_non_zero]) < 0.01):
-				find_non_zero += 1
-			else:
-				break
+		find_non_zero = self.FindNextValidEllipse()
 		# check if we are in the ellipse					
 		return self.CheckEllipseCompletion(funnel, action, find_non_zero)
 
+	# extract S (rotated to current pose) and center of ellipse from current mp (funnel&ellipse)
 	def GetCoordAndEllipseFromLabel(self, funnel, action, ellipse_num):
 		mp = self.mps[action]
 		
@@ -251,12 +318,13 @@ class Jackal:
 		e_center, rotmat = self.ConvertRelPos2Global(x0, funnel)
 		# rotate the ellipse to fit the global coordinate system
 		# x'*V*x<1 & z=R*x ==> x=invR*x ==> z'*invR'*V*invR*z < 1
-		rotmat = np.array([[rotmat[0,0], rotmat[0,1], 0.], [rotmat[1,0],rotmat[1,1],0.], [0.,0.,0.]]) # convert to 3D
+		rotmat = np.array([[rotmat[0,0], rotmat[0,1], 0.], [rotmat[1,0],rotmat[1,1],0.], [0.,0.,1.]]) # convert to 3D
 		rotmat = np.linalg.inv(rotmat)
 		S = rotmat.T.dot(S.dot(rotmat))
 
 		return S, e_center
 
+	# coordinates transfer from mp frame to global frame
 	def ConvertRelPos2Global(self, rel_pose, funnel):
 		orient, xs, ys = [int(s) for s in re.findall(r'-?\d+\.?\d*', funnel)] # extract first ellipse pose
 		xs = W_xgrid[xs]
@@ -275,6 +343,7 @@ class Jackal:
 		
 		return pose, rotmat
 	
+	# limits the commands in such a way as to preserve the ratio between them
 	def LimitCmds(self, V, omega):
 		
 		if(V <= 0.0):
@@ -292,6 +361,7 @@ class Jackal:
 		
 		return V, omega
 	
+	# gives look-ahead point to where to robot should go (and the commands it needs to take)
 	def GetClosestInterpPoint(self, rel_poses, funnel):
 		orient, xs, ys = [int(s) for s in re.findall(r'-?\d+\.?\d*', funnel)] # extract first ellipse pose
 		xs = W_xgrid[xs]
@@ -310,7 +380,7 @@ class Jackal:
 		diff = self.pose[:2].reshape((2,1))-poses
 		dist = np.linalg.norm( diff, axis=0 )
 
-		index = np.argmin(dist, axis=0) +2
+		index = np.argmin(dist, axis=0) + 1 #2
 		# skip the zero velocities ellipses
 		while((index < N-1) and (np.abs(self.u_ref_hires[1,index]) < 0.05)):
 			index += 1
@@ -322,6 +392,7 @@ class Jackal:
 
 		return pose_ref, u_ref
 	
+	# compute the actual controls to the robot
 	def control(self, K, x_0, u_0, do_calc=True):
 		#if(do_calc):
 		
@@ -337,8 +408,10 @@ class Jackal:
 			rotmat = GetRotmat(orient)
 			rotmat = np.linalg.inv(rotmat)
 			err = self.pose - x_0
+			# find the smallest angle difference
+			ang_diff = (err[2] + np.pi) % (2*np.pi) - np.pi
 			err_rel = rotmat.dot(err[:2])
-			err_rel = np.hstack((err_rel, err[2] )) # add the theta component
+			err_rel = np.hstack((err_rel, ang_diff )) # add the theta component
 			
 			#import pdb; pdb.set_trace()
 			u = u_0 - K.dot(err_rel)	
@@ -360,6 +433,7 @@ class Jackal:
 		
 		self.actuation(u)
 	
+	# send the commands to ROS
 	def actuation(self, u):
 		# Jackal accepts commands in linear velocity and angular velocity.
 		# our model assumed u = [steering angle, linear velocity]
@@ -409,7 +483,8 @@ if __name__ == '__main__':
 	J = Jackal(args.n)
 			
 	try:
-		rospy.spin()
+		#rospy.spin()
+		J.Run()
 	except KeyboardInterrupt:
 		print("Shutting down\n")
 	
