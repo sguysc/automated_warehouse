@@ -20,7 +20,7 @@ from shapely.geometry import Polygon, box
 
 from StructuredSlugsParser import compiler as slugscomp
 
-#from DubinsPlantCar import *
+from DubinsPlantCar import CELL_SIZE
 #from pydrake.symbolic import Expression
 #from pydrake.all import PiecewisePolynomial
 
@@ -30,7 +30,7 @@ import ROSUtilities as RU
 ft2m     = 0.3048
 W_Height = 0.0 #233.0 * ft2m # [m]
 W_Width  = 0.0 #434.0 * ft2m # [m]
-cell     = 1.25 # [m]
+cell     = CELL_SIZE #1.25 # [m]
 pix2m    = 0.0
 W_xgrid  = []
 W_ygrid  = []
@@ -85,9 +85,9 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 	# plot obstacles & total workable space
 	ax = plot_map(workspace, obs)
 		
-	X = np.arange(bounds[0]+cell, bounds[2]-cell, cell)
+	X = np.arange(bounds[0]+cell/2.0, bounds[2]-cell/2.0, cell)
 	W_xgrid = X.copy()
-	Y = np.arange(bounds[1]+cell, bounds[3]-cell, cell)
+	Y = np.arange(bounds[1]+cell/2.0, bounds[3]-cell/2.0, cell)
 	W_ygrid = Y.copy()
 	#	XV, YV = np.meshgrid(X, Y)
 	nX = len(X)
@@ -99,13 +99,14 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 		obstacles.append(v)
 	# create the world map for gazebo simulation
 	RU.CreateCustomMapWorld(map_kind, bounds, obstacles)
-	import 	pdb; pdb.set_trace()
+	#import 	pdb; pdb.set_trace()
 	
 	if(glob.glob(map_kind + '.pickle')):
 		# if it already exist, save time re-creating the graph
 		G = LoadGraphFromFile(map_kind)
 		toc = timer()
 		print('Motion primitives file exist, so just loading existing (%f[sec])' %(toc-tic))
+		#import pdb; pdb.set_trace()
 		return G, ax
 
 	total_count = 0
@@ -279,9 +280,9 @@ def ReplicateMap(map_kind = 'none'):
 		obs.append( box( 6.*ft2m, -12.0*ft2m, 9.0*ft2m,  -4.0*ft2m ) ) # rack, in pixels
 		obs.append( box( 0.*ft2m, 0.*ft2m, 7.5*ft2m,  7.0*ft2m ) ) # table, in pixels
 		
-		goals = np.array([[2.5*ft2m, -8.*ft2m, 90.0*math.pi/180.0], \
-						  [5.*ft2m, 8.*ft2m, -90.0*math.pi/180.0], \
-						  [-7.*ft2m, -11.*ft2m, -90.0*math.pi/180.0] ]) 
+		goals = np.array([[2.5*ft2m, -7.*ft2m, 90.0*math.pi/180.0], \
+						  [5.*ft2m, 8.5*ft2m, 0.0*math.pi/180.0], \
+						  [-7.*ft2m, -10.*ft2m, -90.0*math.pi/180.0] ]) 
 		
 		no_enter = []
 		no_enter.append(box( -4.*ft2m, 0.*ft2m, 0.*ft2m,  7.0*ft2m ) )
@@ -361,10 +362,26 @@ def MapToFile(map_kind, workspace, obstacles, goals, no_enter, scale):
 			'X': bounds[2]*pix2m,
 			'Y': bounds[3]*pix2m
 		})
+	data['cell'] = CELL_SIZE
 	
 	with open(map_kind + '.map', 'w') as outfile:
 		json.dump(data, outfile)
+
+def MotionPrimitivesToFile(map_kind, motion_primitives):
+	data = {}
+	data['mp'] = {}
+
+	for key, mp in motion_primitives.items():
+		data['mp']['x' + str(key)] = []
+		for i, x in enumerate(mp['xcenter']):
+			data['mp']['x' + str(key)].append({
+				'x': mp['xcenter'][i].tolist(),
+				'V': mp['V'][i].flatten().tolist() })
+		
+	with open(map_kind + '.motion', 'w') as outfile:
+		json.dump(data, outfile)
 	
+
 # finds a path between each goal using graph search just because it's so much
 # faster than slugs so we can immediatley alert the user that the path is infeasible
 def FindPathBetweenGoals(G, goals):
@@ -387,6 +404,7 @@ def FindPathBetweenGoals(G, goals):
 		
 		try:
 			paths.append( nx.dijkstra_path(G, source=start_label, target=finish_label, weight='weight') ) #shortest_path
+			print('Found path between %s to %s' %(start_label, finish_label))
 		except:
 			print('Could not find any path between %s to %s' %(start_label, finish_label))
 			paths.append([])
@@ -736,6 +754,13 @@ def GetSpecificControl(C, map_bit_2_label, debug=True):
 	if(debug):
 		print('Extracting plan (from slugs) took %f[sec]' %(toc-tic))
 	
+	#import pdb; pdb.set_trace()
+	jsonList = []
+	for i in range(len(states)):
+		jsonList.append({"state" : states[i], "action" : mps[i]})
+	with open('lab.states', 'wt') as f:
+		json.dump(jsonList, f)
+		
 	return states, mps
 
 
@@ -785,6 +810,8 @@ if __name__ == "__main__":
 	map_kind = 'lab' 
 	#map_kind = 'raymond'
 	MP = LoadMP(fName='MPLibrary.lib')
+	MotionPrimitivesToFile(map_kind, MP)
+	#import pdb; pdb.set_trace()
 	workspace, obs, goals, no_enter = ReplicateMap(map_kind=map_kind) #
 	
 	DiGraph, ax = PopulateMapWithMP(MP, workspace, obs, map_kind, cell_h=cell, cell_w=cell)

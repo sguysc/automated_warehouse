@@ -19,6 +19,10 @@ from pydrake.solvers.mosek import MosekSolver
 # to solve the differential ricatti eqn
 from scipy.integrate import solve_ivp
 
+#CELL_SIZE = 1.25 # [m]  Jackal - gazebo, forklift
+#CELL_SIZE = 0.4 # [m]  Jackal - gazebo, forklift
+CELL_SIZE = 0.25 # [m]  Jackal - gazebo, forklift
+
 @TemplateSystem.define("DubinsCarPlant_")
 def DubinsCarPlant_(T):
 	class Impl(LeafSystem_[T]):
@@ -75,9 +79,9 @@ def DubinsCarPlant_(T):
 			for p in p1:
 				self.pxi.append(p)
 			self.pxi = np.array(self.pxi)
-			self.pxi[:,0] = self.pxi[:,0] * 1.25/2.0
-			self.pxi[:,1] = self.pxi[:,1] * 1.25/2.0
-			self.pxi[:,2] = self.pxi[:,2] * 45.0*math.pi/180.0
+			self.pxi[:,0] = self.pxi[:,0] * CELL_SIZE/2.0
+			self.pxi[:,1] = self.pxi[:,1] * CELL_SIZE/2.0
+			self.pxi[:,2] = self.pxi[:,2] * 45.0*math.pi/180.0 #90 degree coverage
 			#import pdb; pdb.set_trace()
 			for i in range(self.nX):
 				tmp = np.zeros(self.nX)
@@ -639,7 +643,7 @@ def DubinsCarPlant_(T):
 		
 			return self.TimeVaryingLyapunovSearchRho(x, all_V, all_Vd2, all_T, all_fcl, all_K, \
 														 times, xtraj, utraj, rho_f, multiplier_degree=multiplier_degree, \
-														 debug=debug, find_V=find_V)
+														 debug=debug, find_V=find_V), all_K
 			
 		# Attempts to find the largest funnel, defined by the time-varying
 		# one-level set of V, which verifies (using SOS over state at finite 
@@ -959,7 +963,7 @@ def DubinsCarPlant_(T):
 					#rhointegral = result.GetSolution(rhointegral).Evaluate()
 					rhointegral = ellipsoid_vol.Evaluate()
 					# stop if it starts going up (although it might happen and then recooperate) 
-					if( (rhointegral>prev_rhointegral and idx>1) or \
+					if( (rhointegral>prev_rhointegral and idx>10) or \
 					    np.abs(rhointegral-prev_rhointegral)/rhointegral < 1.5E-3): # 0.1%
 						print('Rho integral converged')
 						need_to_break = True
@@ -1426,7 +1430,7 @@ def DubinsCarPlant_(T):
 			# new times vector
 			#times = np.linspace(utraj.start_time(), utraj.end_time(), 12)
 			times = np.linspace(utraj.start_time(), utraj.end_time(), self.ex_knots)#self.knotPoints)
-			V = self.InterpolateTrajectory(x, ucon, S1, K1, times, xtraj, utraj, rho_f, \
+			V, all_K = self.InterpolateTrajectory(x, ucon, S1, K1, times, xtraj, utraj, rho_f, \
 											multiplier_degree=deg_L, debug=debug, find_V=find_V)
 			'''
 			#V = all_V
@@ -1524,7 +1528,7 @@ def runFunnel():
 	#x0 = (0.0, 0.0, 0.0)
 	#xf = (0.0, 4.0, 180.0*math.pi/180.0)
 	x0 = (0.0, 0.0, 0.0)
-	xf = (0.40,  0.0,  0.0*math.pi/180.0)
+	xf = (0.00,  CELL_SIZE*3.,  180.0*math.pi/180.0)
 	dist = np.linalg.norm(np.array(xf)-np.array(x0))
 	tf0 = dist/(plant.umax*0.8) # Guess for how long trajectory should take
 	#tf0 = 2.4
