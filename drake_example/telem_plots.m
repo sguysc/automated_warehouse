@@ -7,6 +7,9 @@ clc
 
 %%
 filename = 'telemetry.log';
+map_text = fileread('lab.map');
+map_data = jsondecode(map_text);
+
 delimiter = {',',';'};
 startRow = 2;
 
@@ -48,12 +51,24 @@ u_ref_new = telemetry(:,26:27);
 path = {'R1220', 'R1216','R1212','R1108','R301','R159','R1300','R1125','R798', ...
     'R453','R449','R1311','R2','R1263','R39','R1220'};
 
-pix2m = 0.2;
-obstacle = [30.0, 60.0, 50.0,  140.0 ]*pix2m;
-		
-goals = [70., 70., 90.0; ...
-         10., 120., -90.0]*pix2m;
-                      
+%pix2m = 0.2;
+%obstacle = [30.0, 60.0, 50.0,  140.0 ]*pix2m;
+obstacle = [];
+for i =1:length(map_data.obstacles)
+    obstacle = [obstacle; map_data.obstacles(i).x, map_data.obstacles(i).y, map_data.obstacles(i).X,  map_data.obstacles(i).Y  ];
+end	
+%goals = [70., 70., 90.0; ...
+%         10., 120., -90.0]*pix2m;
+goals = [];
+for i =1:length(map_data.goals)
+    goals = [goals; map_data.goals(i).x, map_data.goals(i).y, map_data.goals(i).teta ] ;
+end	
+
+no_enter = [];
+for i =1:length(map_data.no_enter)
+    no_enter = [no_enter; map_data.no_enter(i).x, map_data.no_enter(i).y, map_data.no_enter(i).X,  map_data.no_enter(i).Y  ];
+end	
+
 states = [1,10,10; ...
           1,10,14; ...
         1,10,18; ...
@@ -72,8 +87,8 @@ states = [1,10,10; ...
         1,10,10];
 actions = [0, 0, 0, 5, 0, 2, 5, 0, 0, 0, 2, 5, 1, 3, 5, 0];
 
-pix2m = 0.2; %[m]
-bounds = [ 0.,  0., 20., 40.];
+%pix2m = 0.2; %[m]
+bounds = [ map_data.workspace.x,  map_data.workspace.y, map_data.workspace.X, map_data.workspace.Y];
 cell = 1.25; %[m]
 W_xgrid = (bounds(1)+cell) : cell: (bounds(3)-cell);
 W_ygrid = (bounds(2)+cell): cell: (bounds(4)-cell);
@@ -161,7 +176,7 @@ title('Workspace, X-Y Plane view'); legend('ref. trajectory', 'Jackal simulation
 % grid on;
 xlabel('Y [m]'); ylabel('X [m]');
 
-return
+% return
 
 figure;
 h(1)=subplot(211);

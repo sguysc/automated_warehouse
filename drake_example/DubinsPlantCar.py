@@ -40,7 +40,7 @@ def DubinsCarPlant_(T):
 			# three positions, no velocities
 			self.DeclareContinuousState(self.nX, 0, 0)
 
-			self.knotPoints = 6
+			self.knotPoints = 4
 			#self.knotPoints = 4
 			self.ex_knots = self.knotPoints
 			
@@ -1524,7 +1524,7 @@ def runFunnel():
 	#x0 = (0.0, 0.0, 0.0)
 	#xf = (0.0, 4.0, 180.0*math.pi/180.0)
 	x0 = (0.0, 0.0, 0.0)
-	xf = (0.00,  2.50,  180.0*math.pi/180.0)
+	xf = (0.40,  0.0,  0.0*math.pi/180.0)
 	dist = np.linalg.norm(np.array(xf)-np.array(x0))
 	tf0 = dist/(plant.umax*0.8) # Guess for how long trajectory should take
 	#tf0 = 2.4

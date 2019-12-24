@@ -18,7 +18,7 @@ from gazebo_msgs.msg import ModelStates
 from tf.transformations import euler_from_quaternion, quaternion_inverse
 from tf2_geometry_msgs import do_transform_vector3
 
-ROBOT_TYPE = 'JACKAL'
+ROBOT_TYPE = 'JACKAL'  # original JACKAL run with 'roslaunch jackal_gazebo jackal_world.launch'
 #ROBOT_TYPE = 'TURTLEBOT'
 
 SYNTH_AUTOMATA_FILE = 'map_funnel.json'
@@ -49,6 +49,9 @@ class Jackal:
 		self.L = FL_L #*15.0 #for the forklift
 		self.do_calc = True
 		self.u = np.array([0.0, 0.0]) # stores the last controls
+		# integrators
+		self.v_prev = 0.0
+		self.delta_prev = 0.0
 		
 		# load the slugs solution
 		aut = open(aut_file, 'r')
@@ -70,7 +73,7 @@ class Jackal:
 		self.curr_state = 0
 		self.N_state  = len(self.states)
 		self.N_ellipse = len(self.mps[ self.actions[self.curr_state] ]['V'])
-		self.curr_ell = 0
+		self.curr_ell = self.FindNextValidEllipse()
 		self.K     = self.mps[self.actions[self.curr_state] ]['K'][self.curr_ell]
 		self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.actions[self.curr_state] ]['xcenter'][self.curr_ell], \
 										self.states[self.curr_state])
@@ -86,7 +89,6 @@ class Jackal:
 		if('JACKAL' in ROBOT_TYPE):
 			#self.control_pub = rospy.Publisher('/jackal%d/jackal_velocity_controller/cmd_vel' %self.idx, Twist, queue_size=1) #Jackal
 			self.control_pub = rospy.Publisher('/jackal_velocity_controller/cmd_vel', Twist, queue_size=1) #Jackal
-			#self.control_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=1) #Jackal
 		elif('TURTLEBOT' in ROBOT_TYPE):
 			self.control_pub = rospy.Publisher('/mobile_base/commands/velocity', Twist, queue_size=1) #turtlebot
 		# get data
@@ -177,7 +179,7 @@ class Jackal:
 						#self.x_ref_hires = self.mps[ self.actions[self.curr_state] ]['xtraj']
 						#self.u_ref_hires = self.mps[ self.actions[self.curr_state] ]['utraj']
 						self.curr_ell = next_ell
-						self.do_calc = True
+						#self.do_calc = True
 						#self.timer = self.msg_num
 						break;
 					next_ell -= 1
@@ -252,6 +254,12 @@ class Jackal:
 		
 		return vt.vector #np.array([vt.vector.x, vt.vector.y, vt.vector.z ])
 	
+	# y/x = 1/(tau*s+1) ==>  y(k) = T/(tau+T) * (x(k)+tau/T*y(k-1))
+	def LPF(self, x, y_prev, tau=1.):
+		T = 1./self.Fs
+		y = T/(tau + T) * (x + tau/T*y_prev)
+		return y
+
 	# check if a point is in a predefined ellipse
 	def CloseEnoughToNextPoint(self, funnel, action, ellipse_num, dist=0.2, ang=0.2):
 		__, ellipse_pose = self.GetCoordAndEllipseFromLabel(funnel, action, ellipse_num)
@@ -287,6 +295,8 @@ class Jackal:
 		while True:
 			if(np.linalg.norm(self.mps[self.actions[self.curr_state]]['unom'][find_non_zero]) < 0.01):
 				find_non_zero += 1
+				if(find_non_zero == self.N_ellipse):
+					break
 			else:
 				break
 		return find_non_zero
@@ -380,7 +390,7 @@ class Jackal:
 		diff = self.pose[:2].reshape((2,1))-poses
 		dist = np.linalg.norm( diff, axis=0 )
 
-		index = np.argmin(dist, axis=0) + 1 #2
+		index = np.argmin(dist, axis=0) + 0 #1 #2
 		# skip the zero velocities ellipses
 		while((index < N-1) and (np.abs(self.u_ref_hires[1,index]) < 0.05)):
 			index += 1
@@ -414,7 +424,18 @@ class Jackal:
 			err_rel = np.hstack((err_rel, ang_diff )) # add the theta component
 			
 			#import pdb; pdb.set_trace()
-			u = u_0 - K.dot(err_rel)	
+			u = u_0 - K.dot(err_rel)
+			#u[0] = self.LPF(u[0], self.delta_prev, tau=10.)
+			#self.delta_prev = u[0]
+			#if(do_calc == False):
+			u[1] = self.LPF(u[1], self.u[1], tau=2.)
+			self.v_prev = u[1]
+			#else:
+				# this is basically a reset when switching funnels
+				#self.v_prev = 0.0
+				#u[1] = 0.0
+				
+				
 		
 			#saturations
 			if(u[1] > umax):

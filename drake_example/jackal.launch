@@ -26,8 +26,8 @@
     <arg name="use_move_base" value="true"/>
     <arg name="use_global_tf" value="false"/>
     <arg name="use_global_ekf" value="true"/>
-    <arg name="x"             value="14.000000"/>
-    <arg name="y"             value="14.000000"/>
+    <arg name="x"             value="0.762000"/>
+    <arg name="y"             value="-2.438400"/>
     <arg name="yaw"           value="1.570796"/>
   </include>
   

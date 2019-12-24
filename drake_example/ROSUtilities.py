@@ -3,8 +3,10 @@ import numpy as np
 import shutil 
 
 
-BARRIER_LENGTH = 4.06542 
-BARRIER_WIDTH  = 0.8107
+#BARRIER_LENGTH = 4.06542 
+BARRIER_LENGTH = 4.4
+#BARRIER_WIDTH  = 0.8107
+BARRIER_WIDTH  = 1.0
 
 def CreateCustomMapWorld(filename, bounds, obstacles):
 	with open(filename + '.world', 'w') as f: 	
@@ -73,9 +75,9 @@ def CreateCustomMapWorld(filename, bounds, obstacles):
 		f.write('      </link>\n')
 		f.write('    </model>\n')
 		f.write('    <physics type=\'ode\'>\n')
-		f.write('      <max_step_size>0.001</max_step_size>\n')
+		f.write('      <max_step_size>0.01</max_step_size>\n')
 		f.write('      <real_time_factor>1</real_time_factor>\n')
-		f.write('      <real_time_update_rate>1000</real_time_update_rate>\n')
+		f.write('      <real_time_update_rate>100</real_time_update_rate>\n')
 		f.write('      <gravity>0 0 -9.8</gravity>\n')
 		f.write('    </physics>\n')
 		f.write('    <scene>\n')
@@ -149,13 +151,25 @@ def CreateCustomMapWorld(filename, bounds, obstacles):
 		'''
 		for obs in obstacles:
 			if((obs[2]-obs[0]) > (obs[3]-obs[1])):
-				AddLongShelf(f, (obs[2]+obs[0])/2.0, obs[1]+(obs[3]-obs[1])/4.0, 0.0, (obs[2]-obs[0]), (obs[3]-obs[1])/2.0, idx)
+				AddLongShelf(f, (obs[2]+obs[0])/2.0, obs[1]+(obs[3]-obs[1])/2.0, 0.0, \
+							 (obs[2]-obs[0]), (obs[3]-obs[1])/2.0, idx)
+				'''
+				AddLongShelf(f, (obs[2]+obs[0])/2.0, obs[1]+(obs[3]-obs[1])/4.0-1, 0.0, \
+							 (obs[2]-obs[0])-0.1, (obs[3]-obs[1])/2.0-0.1, idx)
 				idx += 1
-				AddLongShelf(f, (obs[2]+obs[0])/2.0, obs[1]+(obs[3]-obs[1])/4.0, np.pi, (obs[2]-obs[0]), (obs[3]-obs[1])/2.0, idx)
+				AddLongShelf(f, (obs[2]+obs[0])/2.0, obs[1]+(obs[3]-obs[1])/4.0+1, np.pi, \
+							 (obs[2]-obs[0])-0.1, (obs[3]-obs[1])/2.0-0.1, idx)
+				'''
 			else:
-				AddLongShelf(f, obs[0]+(obs[2]-obs[0])/4.0, (obs[3]+obs[1])/2.0, np.pi/2.0, (obs[3]-obs[1]), (obs[2]-obs[0])/2.0, idx)
+				AddLongShelf(f, obs[0]+(obs[2]-obs[0])/2.0, (obs[3]+obs[1])/2.0, np.pi/2.0, \
+							 (obs[3]-obs[1]), (obs[2]-obs[0])/2.0, idx)
+				'''
+				AddLongShelf(f, obs[0]+(obs[2]-obs[0])/4.0-1, (obs[3]+obs[1])/2.0, np.pi/2.0, \
+							 (obs[3]-obs[1])-0.1, (obs[2]-obs[0])/2.0-0.1, idx)
 				idx += 1
-				AddLongShelf(f, obs[0]+(obs[2]-obs[0])/4.0, (obs[3]+obs[1])/2.0, -np.pi/2.0, (obs[3]-obs[1]), (obs[2]-obs[0])/2.0, idx)
+				AddLongShelf(f, obs[0]+(obs[2]-obs[0])/4.0+1, (obs[3]+obs[1])/2.0, -np.pi/2.0, \
+							 (obs[3]-obs[1])-0.1, (obs[2]-obs[0])/2.0-0.1, idx)
+				'''
 			idx += 1
 		
 		#now, the state
@@ -224,13 +238,19 @@ def CreateCustomMapWorld(filename, bounds, obstacles):
 		'''
 		for obs in obstacles:
 			if((obs[2]-obs[0]) > (obs[3]-obs[1])):
-				AddShelfState(f, (obs[2]+obs[0])/2.0, obs[1]+(obs[3]-obs[1])/4.0, 0.0, idx, scale=1.0)
+				AddShelfState(f, (obs[2]+obs[0])/2.0, obs[1]+(obs[3]-obs[1])/2.0, 0.0, idx, scale=1.0)
+				'''
+				AddShelfState(f, (obs[2]+obs[0])/2.0-0.1, obs[1]+(obs[3]-obs[1])/4.0-1, 0.0, idx, scale=1.0)
 				idx += 1
-				AddShelfState(f, (obs[2]+obs[0])/2.0, obs[1]+(obs[3]-obs[1])/4.0, 0.0, idx, scale=1.0)
+				AddShelfState(f, (obs[2]+obs[0])/2.0-0.1, obs[1]+(obs[3]-obs[1])/4.0-1, 0.0, idx, scale=1.0)
+				'''
 			else:
-				AddShelfState(f, obs[0]+(obs[2]-obs[0])/4.0, (obs[3]+obs[1])/2.0, np.pi/2.0, idx, scale=1.0)
+				AddShelfState(f, obs[0]+(obs[2]-obs[0])/2.0, (obs[3]+obs[1])/2.0, np.pi/2.0, idx, scale=1.0)
+				'''
+				AddShelfState(f, obs[0]+(obs[2]-obs[0])/4.0-1, (obs[3]+obs[1])/2.0-0.1, np.pi/2.0, idx, scale=1.0)
 				idx += 1
-				AddShelfState(f, obs[0]+(obs[2]-obs[0])/4.0, (obs[3]+obs[1])/2.0, np.pi/2.0, idx, scale=1.0)
+				AddShelfState(f, obs[0]+(obs[2]-obs[0])/4.0-1, (obs[3]+obs[1])/2.0-0.1, np.pi/2.0, idx, scale=1.0)
+				'''
 			idx += 1
 
 
