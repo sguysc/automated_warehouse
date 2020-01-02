@@ -965,9 +965,9 @@ def AddLongShelf(f, x, y, yaw, length, width, idx):
 	
 
 	
-def CreateJackals(IC=[[0.0,0.0,0.0]]):
+def CreateJackals(filename, IC=[[0.0,0.0,0.0]]):
 	N = len(IC)
-	with open('jackal.launch', 'w') as f: 	
+	with open(filename + '.launch', 'w') as f: 	
 		f.write('<?xml version="1.0"?>\n')
 		f.write('\n')
 		f.write('<!-- Launches Jackal Gazebo simulation for warehouse automation in a day. -->\n')
@@ -1013,7 +1013,7 @@ def CreateJackals(IC=[[0.0,0.0,0.0]]):
 		f.write('</launch>\n')
 
 	dest_folder = '../simulation/jackal_nav/src/multi_jackal/multi_jackal_tutorials/launch/'
-	dest = shutil.copyfile('jackal.launch', dest_folder + 'jackal_AW.launch') 
+	dest = shutil.copyfile(filename + '.launch', dest_folder + 'jackal_AW.launch') 
 	print('Copied Jackal configuration to location ' + dest_folder)
 	
 	

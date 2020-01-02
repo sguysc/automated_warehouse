@@ -11,6 +11,7 @@ import curses, sys, subprocess
 import json
 from itertools import combinations
 from timeit import default_timer as timer
+import argparse
 
 import networkx as nx
 
@@ -21,8 +22,6 @@ from shapely.geometry import Polygon, box
 from StructuredSlugsParser import compiler as slugscomp
 
 from DubinsPlantCar import CELL_SIZE
-#from pydrake.symbolic import Expression
-#from pydrake.all import PiecewisePolynomial
 
 import GeometryFunctions as gf
 import ROSUtilities as RU
@@ -69,7 +68,7 @@ def GetRotmat(orient):
 	return rotmat
 
 # add connections between grid points using motion primitives if they do not collide with any obstacle
-def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, cell_w=1.25):
+def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, map_kind, cell_h=1.25, cell_w=1.25, force=False):
 	global W_Width
 	global W_xgrid
 	global W_ygrid
@@ -101,7 +100,7 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 	RU.CreateCustomMapWorld(map_kind, bounds, obstacles)
 	#import 	pdb; pdb.set_trace()
 	
-	if(glob.glob(map_kind + '.pickle')):
+	if((force == False) and (glob.glob(map_kind + '.pickle'))):
 		# if it already exist, save time re-creating the graph
 		G = LoadGraphFromFile(map_kind)
 		toc = timer()
@@ -109,20 +108,17 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 		#import pdb; pdb.set_trace()
 		return G, ax
 
+	# for now, we treat do not enter zones as obstacles so it would not have 
+	# the funnels on the map. In the future, this needs to go, because we loose
+	# the options to do reactive stuff with the do not enter zone
+	merged_obs_list = []
+	merged_obs_list.extend(obs)
+	#merged_obs_list.extend(no_enter)
+	
 	total_count = 0
 	G = nx.DiGraph(name='ConnectivityGraph')
 	for orient in range(4): #corresponds to (E, N, W, S)
 		# rotate the motion primitives according to initial position
-		'''
-		if(orient == 0):
-			rotmat = np.array([[0.,-1.], [1.,0.]])
-		elif(orient == 1):
-			rotmat = np.array([[-1.,0.], [0.,-1.]])
-		elif(orient == 2):
-			rotmat = np.array([[0.,1.], [-1.,0.]])
-		else:
-			rotmat = np.array([[1.,0.], [0.,1.]])
-		'''
 		rotmat = GetRotmat(orient)
 
 		#import pdb; pdb.set_trace()
@@ -135,8 +131,12 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 					# rotate to global coordinate system
 					connect2  = rotmat.dot( connect2 ) 
 					toLoc     = np.array([[x], [y]]) + connect2
+
+					#if(int(orient) == 1 and i==12 and j==6):
+					#	import pdb; pdb.set_trace()
+
 					# check if funnel is in bounds and does not collide with any obstacle
-					if(IsPathFree(workspace, mp, obs, rotmat, orient, x, y, toLoc[0], toLoc[1], \
+					if(IsPathFree(mp, merged_obs_list, rotmat, orient, x, y, toLoc[0], toLoc[1], \
 								  X[0], X[-1], Y[0], Y[-1], ax )):
 						toRot    = (mp['e'][2]-mp['s'][2]) / (90.0*math.pi/180.0)
 						toRot    = (orient+toRot)%4
@@ -148,7 +148,7 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 						difficulty_factor = 1.0  + key/20.0 #just a factor
 						if(key>6):
 							difficulty_factor = difficulty_factor*5
-							
+													
 						G.add_edge( 'H' + str(int(orient)) + 'X' + str(i) + 'Y' + str(j), \
 								    'H' + str(int(toRot)) + 'X' + str(i+int(connect2[0][0])) + 'Y' + str(j+int(connect2[1][0])), \
 								    weight=LA.norm(connect2)*difficulty_factor, motion=key, index=total_count )
@@ -166,7 +166,7 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, map_kind, cell_h=1.25, c
 
 # function that decides if an obstacle-free path exist between start and end point
 # taking into account the width of the funnels
-def IsPathFree(workspace, mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, ymax, ax):
+def IsPathFree(mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, ymax, ax):
 	global pix2m
 	# check if you're not going out of bounds (it's fast, but doesn't account for a U-turn!)
 	if( (xe < xmin) or (xe > xmax) ):
@@ -269,7 +269,25 @@ def ReplicateMap(map_kind = 'none'):
 		W_Width  = 434.0 * ft2m # [m]
 		
 		no_enter = []
+		'''
+		elif(map_kind.lower() == 'lab'):
+			workspace = box( -8*ft2m, -12.0*ft2m, 9.0*ft2m, 11.0*ft2m ) 
 
+			W_Height = workspace.bounds[2] - workspace.bounds[0]  # [m]
+			W_Width  = workspace.bounds[3] - workspace.bounds[1] # [m]
+
+			obs = []
+			obs.append( box( 6.*ft2m, -12.0*ft2m, 9.0*ft2m,  -4.0*ft2m ) ) # rack, in pixels
+			obs.append( box( 0.*ft2m, 0.*ft2m, 7.5*ft2m,  7.0*ft2m ) ) # table, in pixels
+
+			goals = np.array([[ 2.5*ft2m, -7.0*ft2m,  90.0*math.pi/180.0], \
+							  [ 5.0*ft2m,  8.5*ft2m,  0.0*math.pi/180.0], \
+							  [-7.0*ft2m, -10.*ft2m, -90.0*math.pi/180.0] ]) 
+
+			no_enter = []
+			no_enter.append(box( -4.0*ft2m,  0.0*ft2m, 0.0*ft2m,  7.0*ft2m ) )
+			no_enter.append(box( -4.0*ft2m, -12.*ft2m, 0.0*ft2m, -5.0*ft2m ) )
+		'''
 	elif(map_kind.lower() == 'lab'):
 		workspace = box( -8*ft2m, -12.0*ft2m, 9.0*ft2m, 11.0*ft2m ) 
 
@@ -280,13 +298,13 @@ def ReplicateMap(map_kind = 'none'):
 		obs.append( box( 6.*ft2m, -12.0*ft2m, 9.0*ft2m,  -4.0*ft2m ) ) # rack, in pixels
 		obs.append( box( 0.*ft2m, 0.*ft2m, 7.5*ft2m,  7.0*ft2m ) ) # table, in pixels
 		
-		goals = np.array([[2.5*ft2m, -7.*ft2m, 90.0*math.pi/180.0], \
-						  [5.*ft2m, 8.5*ft2m, 0.0*math.pi/180.0], \
-						  [-7.*ft2m, -10.*ft2m, -90.0*math.pi/180.0] ]) 
+		goals = np.array([[ 2.5*ft2m, -7.0*ft2m,  90.0*math.pi/180.0], \
+						  [ 5.0*ft2m,  8.5*ft2m,  0.0*math.pi/180.0], \
+						  [-7.0*ft2m, -10.*ft2m, -90.0*math.pi/180.0] ]) 
 		
 		no_enter = []
-		no_enter.append(box( -4.*ft2m, 0.*ft2m, 0.*ft2m,  7.0*ft2m ) )
-		no_enter.append(box( -4.*ft2m, -12.*ft2m, 0.*ft2m,  -5.0*ft2m ) )
+		no_enter.append(box( -2.0*ft2m,  0.0*ft2m, 0.0*ft2m,  7.0*ft2m ) )
+		no_enter.append(box( -2.0*ft2m, -12.*ft2m, 0.0*ft2m, -5.0*ft2m ) )
 			
 	elif(map_kind.lower() == 'map1'):
 		workspace = box( 0.0, 0.0, 100.0, 200.0 )
@@ -432,7 +450,7 @@ def find_nearest(arr, value):
 
 # visualize the graph edges
 def PlotGraph(G):
-	pos=nx.spring_layout(G, iterations=10)
+	pos = nx.spring_layout(G, iterations=10)
 	nx.draw(G,pos,edgelist=G.edges(),node_size=50,with_labels=False)
 	plt.show()
 
@@ -558,7 +576,9 @@ def plot_path(ax, G, paths, MotionPrimitives):
 	print('Plotting the shortest path took %f[sec]' %(toc-tic))
 
 # generates the specification file for slugs
-def CreateSlugsInputFile(G, goals, MP, filename='map_funnel'):
+def CreateSlugsInputFile(G, goals, MP, no_enter, filename='map_funnel'):
+	global W_xgrid
+	global W_ygrid
 	
 	tic = timer()
 	
@@ -568,7 +588,7 @@ def CreateSlugsInputFile(G, goals, MP, filename='map_funnel'):
 	start_label = []
 	finish_label = []
 	
-	print('Creating to structured slugs file ...')
+	print('Creating the structured slugs file ...')
 	
 	N, __ = goals.shape
 	#print('Start at: %s' %(GetNodeLabel(goals[0, :])))
@@ -612,6 +632,7 @@ def CreateSlugsInputFile(G, goals, MP, filename='map_funnel'):
 		f.write('\n')
 		
 		f.write('[SYS_LIVENESS]\n')
+		# all the points we want to reach (goals)
 		for g in start_label:
 			f.write('R=%d\n' %( map_label_2_bit[ g ] ))
 		f.write('\n')
@@ -630,23 +651,46 @@ def CreateSlugsInputFile(G, goals, MP, filename='map_funnel'):
 		
 		f.write('[ENV_TRANS]\n')
 		all_mps = Set(np.arange(0, len(MP)))
+		
+		# first, add all theoretically available motions to the environment transitions
 		for parent in G:
 			children = G.neighbors(parent) #list of successor nodes of parent
 			avail_links = Set([])
 			for child in children:
-				grandchild = G.neighbors(child) 
+				#grandchild = G.neighbors(child) 
 				#if(grandchild.__length_hint__()>0):
 					# if it has no grandchild then it was probably removed earlier
 					# and it is not even available in the dictionary
-				avail_links.update([G[parent][child]['motion']])
-				f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \
-													   G[parent][child]['motion'], \
-													   map_label_2_bit[child]))
+				mp_num = G[parent][child]['motion']
+				avail_links.update([mp_num])
+				
+				# all the points we wish to avoid (do not enter zones)
+				orient, xs, ys = [int(s) for s in re.findall(r'-?\d+\.?\d*', parent)] # extract ellipse pose
+				#if(map_label_2_bit[parent] == 1290): #'H1X12Y6'
+				#	import pdb; pdb.set_trace()
+				out_of_no_enter = IsPathFree(MP[mp_num], no_enter, GetRotmat(orient), orient, W_xgrid[xs], W_ygrid[ys], 0, 0, \
+								  -10e6, 10e6, -10e6, 10e6, 0 ) #the last 7 parameters don't really matter here
+				if(out_of_no_enter):
+					# good, does not intersect the no entry zones
+					f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \
+														   mp_num, \
+														   map_label_2_bit[child]))
+				else:
+					# intersects a no entry zone. can add reactivity right here.
+					# for now, it's a global avoid this region (as if we would've treated it as an obstacle)
+					# the # is just so I could recognize where it happens in the file
+					f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \
+														   mp_num, \
+														   map_label_2_bit[parent]))
+			
 			links_not_provided = all_mps - avail_links
 			while(len(links_not_provided)>0):
 				f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \
 												   links_not_provided.pop(), \
 												   map_label_2_bit[parent]))
+		f.write('\n')
+						
+		
 	print('done.')
 	print('Converting to slugsin ...')
 	try:
@@ -718,9 +762,30 @@ def GetSpecificControl(C, map_bit_2_label, debug=True):
 	
 	cntr = 1
 	break_on_next_loop = 0
+	#import pdb; pdb.set_trace()
 	while True:
 		in_state = C['nodes'][str(trans)]
 		state = in_state['state']
+
+		# it comes in reverse binary
+		cur_state_str = state[::-1][actions_count:]
+		cur_state = 0
+		for b in cur_state_str:
+			cur_state = 2 * cur_state + b
+		
+		trans = in_state['trans'][0]
+		n_state = C['nodes'][str(trans)]
+		next_state_str = n_state['state'][::-1][actions_count:]
+		next_state = 0
+		for b in next_state_str:
+			next_state = 2 * next_state + b
+		
+		if(next_state == cur_state):
+			# for some reason slugs sometimes gives wrong actions in the beginning
+			# this is a way to overcome it. In the future, need to undestand why this happens
+			# and solve it in the slugs level (or specification).
+			continue
+			
 		# it comes in reverse binary
 		action_str = state[::-1][0:actions_count]
 		action = 0
@@ -728,16 +793,11 @@ def GetSpecificControl(C, map_bit_2_label, debug=True):
 			action = 2 * action + b
 		mps.append(action)
 		
-		cur_state_str = state[::-1][actions_count:]
-		cur_state = 0
-		for b in cur_state_str:
-			cur_state = 2 * cur_state + b
-		
 		states.append(map_bit_2_label[cur_state])
 		if(debug):
 			print('%d) In state: %s, take motion primitive: %d' %(cntr, states[-1], action))
 		
-		trans = in_state['trans'][0]
+		
 		if(break_on_next_loop):
 			break;
 			
@@ -806,6 +866,18 @@ def plot_ellipse(ax, A, x0, orient):
 	ax.fill(X[0, :]+x0[0], X[1, :]+x0[1], color=clr)
 
 if __name__ == "__main__":
+	parser = argparse.ArgumentParser()
+	parser.add_argument("-f","--force", help="(y/[n]) force re-creating the funnels on top of the map")
+	args = parser.parse_args()
+	force = args.force
+	if(force == None):
+		force = False
+	else:
+		if('y' in force.lower()):
+			force = True
+		else:
+			force = False
+	
 	#map_kind = 'none' 
 	map_kind = 'lab' 
 	#map_kind = 'raymond'
@@ -814,22 +886,22 @@ if __name__ == "__main__":
 	#import pdb; pdb.set_trace()
 	workspace, obs, goals, no_enter = ReplicateMap(map_kind=map_kind) #
 	
-	DiGraph, ax = PopulateMapWithMP(MP, workspace, obs, map_kind, cell_h=cell, cell_w=cell)
+	DiGraph, ax = PopulateMapWithMP(MP, workspace, obs, no_enter, map_kind, cell_h=cell, cell_w=cell, force=force)
 	path = FindPathBetweenGoals(DiGraph, goals)
 	# create the amount of jackals you want
-	RU.CreateJackals([[pix2m*goals[0][0], pix2m*goals[0][1], goals[0][2]]])
+	RU.CreateJackals(map_kind, [[pix2m*goals[0][0], pix2m*goals[0][1], goals[0][2]]])
 	#import pdb; pdb.set_trace()
 	
 	plot_path(ax, DiGraph, path, MP)
 	#import pdb; pdb.set_trace()
-	map_label_2_bit = CreateSlugsInputFile(DiGraph, goals, MP, filename='map_funnel')
+	map_label_2_bit = CreateSlugsInputFile(DiGraph, goals, MP, no_enter, filename=map_kind) #'map_funnel')
 	# the reverse dictionary is useful
 	map_bit_2_label = dict((v, k) for k, v in map_label_2_bit.items())
 	
-	synctrl = SynthesizeController(filename='map_funnel')
+	synctrl = SynthesizeController(filename=map_kind) #'map_funnel')
 	GetSpecificControl(synctrl, map_bit_2_label)
 	print('Done. Close figure to exit.')
 	plt.show(block=True)
 	
 
-							 
+							 	

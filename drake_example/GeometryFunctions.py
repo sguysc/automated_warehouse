@@ -11,6 +11,21 @@ class Ellipse:
 		self.center = center.copy()
 		# wrap the angle between (-pi,+pi)
 		#self.center[2] = (( -self.center[2] + math.pi) % (2.0 * math.pi ) - math.pi) * -1.0
+		
+		
+		# find the rotation matrix and radii of the axes
+		u, s, vh = np.linalg.svd(M)
+		radii = 1.0/np.sqrt(s[2])
+
+		# sometimes the optimization gives a really small number in the M[2,2] coefficient
+		# quick fix for badly scaled matrices. need to fix it in future
+		if( radii > math.pi ):
+			radii = 45.0*math.pi/180.0
+			s[2] = 1.0/(radii**2)
+		
+		smat = np.diag(s)
+		M    = np.dot(u, np.dot(smat, vh))
+		
 		self.M      = M
 		self.invM   = np.linalg.inv(M)
 		
