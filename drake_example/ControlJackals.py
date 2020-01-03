@@ -9,7 +9,7 @@ import networkx as nx
 import re
 import logging # can't handle the ros logging :(
 
-from warehouse_map import LoadMP, GetSpecificControl, cell, find_nearest, GetRotmat, FL_L
+from warehouse_map import LoadMP, GetSpecificControl, find_nearest, GetRotmat, FL_L
 
 # ROS stuff
 import rospy
@@ -21,23 +21,22 @@ from tf2_geometry_msgs import do_transform_vector3
 ROBOT_TYPE = 'JACKAL'  # original JACKAL run with 'roslaunch jackal_gazebo jackal_world.launch'
 #ROBOT_TYPE = 'TURTLEBOT'
 
-SYNTH_AUTOMATA_FILE = 'map_funnel.json'
-MP_MAP_FILE = 'none.pickle'
-LABEL2BIT_FILE = 'map_funnel.label2bit'
-pix2m = xxx #0.2 #[m]
-bounds = np.array([ 0.,  0., 20., 40.])
-#cell = 1.25 #[m]
-W_xgrid = np.arange(bounds[0]+cell, bounds[2]-cell, cell)
-W_ygrid = np.arange(bounds[1]+cell, bounds[3]-cell, cell)
+MAP = 'lab'
+MAP_FILE = MAP + '.map'
+SYNTH_AUTOMATA_FILE = MAP + '.json'
+MP_MAP_FILE = MAP + '.pickle'
+LABEL2BIT_FILE = MAP + '.label2bit'
+pix2m = 1.0 #0.2 #[m]
+
 #umax    = 2.6 * 1.6 * 1000.0 / 3600.0  # mph -> m/sec     5.0
 #umax    = .3  # jackal m/sec     5.0
-umax    = 1.0  # jackal m/sec     5.0
+umax    = 0.5 #1.0  # jackal m/sec     5.0
 delmax  = 80.0*np.pi/180.0  #rad   30.0 80
 logger = None			
 
 # class to handle a single robot comm.
 class Jackal:
-	def __init__(self, idx, aut_file=SYNTH_AUTOMATA_FILE, map_file=MP_MAP_FILE, l2b_file=LABEL2BIT_FILE):
+	def __init__(self, idx, map_file=MAP_FILE, aut_file=SYNTH_AUTOMATA_FILE, mp_file=MP_MAP_FILE, l2b_file=LABEL2BIT_FILE):
 		self.all_topics_loaded = False
 		self.Fs = 10 # main/control loop frequency
 		self.idx = idx
@@ -53,11 +52,22 @@ class Jackal:
 		self.v_prev = 0.0
 		self.delta_prev = 0.0
 		
+		# load the map properties
+		aut = open(map_file, 'r')
+		map_prop = json.load(aut)
+		aut.close()
+		#import pdb; pdb.set_trace()
+		cell = map_prop['cell']
+		bounds = np.array([ map_prop['workspace'][0]['x'],  map_prop['workspace'][0]['y'], \
+								 map_prop['workspace'][0]['X'],  map_prop['workspace'][0]['Y']])
+		self.W_xgrid = np.arange(bounds[0]+cell/2.0, bounds[2]-cell/2.0, cell)
+		self.W_ygrid = np.arange(bounds[1]+cell/2.0, bounds[3]-cell/2.0, cell)
+
 		# load the slugs solution
 		aut = open(aut_file, 'r')
 		self.automata = json.load(aut)
 		aut.close()
-		self.G = nx.read_gpickle(map_file)
+		self.G = nx.read_gpickle(mp_file)
 		self.mps = LoadMP()
 		
 		dbfile = open(l2b_file, 'rb')
@@ -67,9 +77,10 @@ class Jackal:
 		# the reverse dictionary is useful
 		self.map_bit_2_label = dict((v, k) for k, v in self.map_label_2_bit.items())
 		self.states, self.actions = GetSpecificControl(self.automata, self.map_bit_2_label, debug=False)
-		#import pdb; pdb.set_trace()
+		
 		for state in self.states:
 			print('R%d (%s)' %(self.map_label_2_bit[state],state))
+		
 		self.curr_state = 0
 		self.N_state  = len(self.states)
 		self.N_ellipse = len(self.mps[ self.actions[self.curr_state] ]['V'])
@@ -87,8 +98,8 @@ class Jackal:
 		# handle the ROS topics
 		# send commands
 		if('JACKAL' in ROBOT_TYPE):
-			#self.control_pub = rospy.Publisher('/jackal%d/jackal_velocity_controller/cmd_vel' %self.idx, Twist, queue_size=1) #Jackal
-			self.control_pub = rospy.Publisher('/jackal_velocity_controller/cmd_vel', Twist, queue_size=1) #Jackal
+			self.control_pub = rospy.Publisher('/jackal%d/jackal_velocity_controller/cmd_vel' %self.idx, Twist, queue_size=1) #Jackal
+			#self.control_pub = rospy.Publisher('/jackal_velocity_controller/cmd_vel', Twist, queue_size=1) #Jackal
 		elif('TURTLEBOT' in ROBOT_TYPE):
 			self.control_pub = rospy.Publisher('/mobile_base/commands/velocity', Twist, queue_size=1) #turtlebot
 		# get data
@@ -117,8 +128,8 @@ class Jackal:
 			
 		# decipher the msg comm. coming from gazebo (ground truth). later, switch to vicon in lab
 		if('JACKAL' in ROBOT_TYPE):
-			#i      = msg.name.index('jackal%d' %(self.idx)) # Jackal
-			i      = msg.name.index('jackal') # Jackal
+			i      = msg.name.index('jackal%d' %(self.idx)) # Jackal
+			#i      = msg.name.index('jackal') # Jackal
 		elif('TURTLEBOT' in ROBOT_TYPE):
 			i      = msg.name.index('mobile_base') # TurtleBot
 			
@@ -337,8 +348,8 @@ class Jackal:
 	# coordinates transfer from mp frame to global frame
 	def ConvertRelPos2Global(self, rel_pose, funnel):
 		orient, xs, ys = [int(s) for s in re.findall(r'-?\d+\.?\d*', funnel)] # extract first ellipse pose
-		xs = W_xgrid[xs]
-		ys = W_ygrid[ys]
+		xs = self.W_xgrid[xs]
+		ys = self.W_ygrid[ys]
 		
 		rotmat = GetRotmat(orient)
 		
@@ -374,8 +385,8 @@ class Jackal:
 	# gives look-ahead point to where to robot should go (and the commands it needs to take)
 	def GetClosestInterpPoint(self, rel_poses, funnel):
 		orient, xs, ys = [int(s) for s in re.findall(r'-?\d+\.?\d*', funnel)] # extract first ellipse pose
-		xs = W_xgrid[xs]
-		ys = W_ygrid[ys]
+		xs = self.W_xgrid[xs]
+		ys = self.W_ygrid[ys]
 		
 		rotmat = GetRotmat(orient)
 		

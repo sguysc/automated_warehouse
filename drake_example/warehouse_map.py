@@ -39,7 +39,8 @@ W_ygrid  = []
 #FL_W  = plant.TotalW # width of car, for all forklifts, dimension G in spec.
 #FL_L  = plant.TotalL # length of car, for a 36inch length fork, dimension B in spec.
 FL_WB  = 1.882 # wheel base, for a 36inch length fork, dimension C in spec.
-FL_W   = 0.902 # width of car, for all forklifts, dimension G in spec.
+#FL_W   = 0.902 # width of car, for all forklifts, dimension G in spec.
+FL_W   = 0.31 # width of jackal
 #FL_L   = 2.619 # length of car, for a 36inch length fork, dimension B in spec.
 FL_L   = 0.42 # length of jackal
 			
@@ -108,12 +109,19 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, map_kind, cell
 		#import pdb; pdb.set_trace()
 		return G, ax
 
-	# for now, we treat do not enter zones as obstacles so it would not have 
-	# the funnels on the map. In the future, this needs to go, because we loose
-	# the options to do reactive stuff with the do not enter zone
+	# Two ways to treat do not enter zones: 1. treat as obstacles so it would not have 
+	# the funnels on the map. 2. because we loose the options to do reactive stuff in (1)
+	# add constraints to the specification to not enter that (this is what's realized currently).
+	# also, add the bounds as obstacles so no trajectories will be too close to the walls.
 	merged_obs_list = []
 	merged_obs_list.extend(obs)
 	#merged_obs_list.extend(no_enter)
+	wks_obs = []
+	wks_obs.append( box( bounds[0], bounds[1]-0.1+FL_W/2.0, bounds[2], bounds[1]    +FL_W/2.0 ) ) # left wall, account for width
+	wks_obs.append( box( bounds[0], bounds[3]    -FL_W/2.0, bounds[2], bounds[3]+0.1-FL_W/2.0 ) ) # right wall, account for width
+	wks_obs.append( box( bounds[0]-0.1+FL_W/2.0, bounds[1], bounds[0]    +FL_W/2.0, bounds[3] ) ) # top wall, account for width
+	wks_obs.append( box( bounds[2]    -FL_W/2.0, bounds[1], bounds[2]+0.1-FL_W/2.0, bounds[3] ) ) # bottom wall, account for width
+	# merged_obs_list.extend(wks_obs)
 	
 	total_count = 0
 	G = nx.DiGraph(name='ConnectivityGraph')
@@ -290,6 +298,7 @@ def ReplicateMap(map_kind = 'none'):
 		'''
 	elif(map_kind.lower() == 'lab'):
 		workspace = box( -8*ft2m, -12.0*ft2m, 9.0*ft2m, 11.0*ft2m ) 
+		#workspace = box( -8.5*ft2m, -12.5*ft2m, 9.5*ft2m, 11.5*ft2m ) 
 
 		W_Height = workspace.bounds[2] - workspace.bounds[0]  # [m]
 		W_Width  = workspace.bounds[3] - workspace.bounds[1] # [m]
