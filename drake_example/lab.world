@@ -220,7 +220,7 @@
         <kinematic>0</kinematic>
         <gravity>1</gravity>
       </link>
-      <pose frame=>-0.238400 -4.157600 0 0 -0 0.000000</pose>
+      <pose frame=>-0.238400 -4.657600 0 0 -0 0.000000</pose>
     </model>
     <model name='jersey_barrier_1'>
       <static>1</static>
@@ -363,7 +363,7 @@
         <kinematic>0</kinematic>
         <gravity>1</gravity>
       </link>
-      <pose frame=>-0.238400 3.852800 0 0 -0 0.000000</pose>
+      <pose frame=>-0.238400 4.352800 0 0 -0 0.000000</pose>
     </model>
     <model name='jersey_barrier_2'>
       <static>1</static>
@@ -506,7 +506,7 @@
         <kinematic>0</kinematic>
         <gravity>1</gravity>
       </link>
-      <pose frame=>-2.938400 -1.457600 0 0 -0 1.570796</pose>
+      <pose frame=>-3.438400 -1.457600 0 0 -0 1.570796</pose>
     </model>
     <model name='jersey_barrier_3'>
       <static>1</static>
@@ -649,7 +649,7 @@
         <kinematic>0</kinematic>
         <gravity>1</gravity>
       </link>
-      <pose frame=>3.243200 -1.457600 0 0 -0 1.570796</pose>
+      <pose frame=>3.743200 -1.457600 0 0 -0 1.570796</pose>
     </model>
     <model name='bookshelf_0'>
       <static>1</static>
@@ -1181,40 +1181,40 @@
         </link>
       </model>
       <model name='jersey_barrier_0'>
-        <pose frame=>-0.238400 -4.157600 0 0 -0 0.000000</pose>
+        <pose frame=>-0.238400 -4.657600 0 0 -0 0.000000</pose>
         <scale>1 1 1</scale>
         <link name='link'>
-          <pose frame=>-0.238400 -4.157600 0 0 -0 0.000000</pose>
+          <pose frame=>-0.238400 -4.657600 0 0 -0 0.000000</pose>
           <velocity>0 0 0 0 -0 0</velocity>
           <acceleration>0 0 0 0 -0 0</acceleration>
           <wrench>0 0 0 0 -0 0</wrench>
         </link>
       </model>
       <model name='jersey_barrier_1'>
-        <pose frame=>-0.238400 3.852800 0 0 -0 0.000000</pose>
+        <pose frame=>-0.238400 4.352800 0 0 -0 0.000000</pose>
         <scale>1 1 1</scale>
         <link name='link'>
-          <pose frame=>-0.238400 3.852800 0 0 -0 0.000000</pose>
+          <pose frame=>-0.238400 4.352800 0 0 -0 0.000000</pose>
           <velocity>0 0 0 0 -0 0</velocity>
           <acceleration>0 0 0 0 -0 0</acceleration>
           <wrench>0 0 0 0 -0 0</wrench>
         </link>
       </model>
       <model name='jersey_barrier_2'>
-        <pose frame=>-2.938400 -1.457600 0 0 -0 1.570796</pose>
+        <pose frame=>-3.438400 -1.457600 0 0 -0 1.570796</pose>
         <scale>1 1 1</scale>
         <link name='link'>
-          <pose frame=>-2.938400 -1.457600 0 0 -0 1.570796</pose>
+          <pose frame=>-3.438400 -1.457600 0 0 -0 1.570796</pose>
           <velocity>0 0 0 0 -0 0</velocity>
           <acceleration>0 0 0 0 -0 0</acceleration>
           <wrench>0 0 0 0 -0 0</wrench>
         </link>
       </model>
       <model name='jersey_barrier_3'>
-        <pose frame=>3.243200 -1.457600 0 0 -0 1.570796</pose>
+        <pose frame=>3.743200 -1.457600 0 0 -0 1.570796</pose>
         <scale>1 1 1</scale>
         <link name='link'>
-          <pose frame=>3.243200 -1.457600 0 0 -0 1.570796</pose>
+          <pose frame=>3.743200 -1.457600 0 0 -0 1.570796</pose>
           <velocity>0 0 0 0 -0 0</velocity>
           <acceleration>0 0 0 0 -0 0</acceleration>
           <wrench>0 0 0 0 -0 0</wrench>

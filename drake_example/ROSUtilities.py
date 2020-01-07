@@ -106,22 +106,26 @@ def CreateCustomMapWorld(filename, bounds, obstacles):
 		'''
 		Total_X = bounds[0] + BARRIER_LENGTH/2.0
 		while(Total_X + BARRIER_LENGTH/4.0 <= bounds[2]):
-			AddBarrier(f, Total_X, bounds[1]-BARRIER_WIDTH/2.0, 0.0, BARRIER_LENGTH, idx)
+			#AddBarrier(f, Total_X, bounds[1]-BARRIER_WIDTH/2.0, 0.0, BARRIER_LENGTH, idx)
+			AddBarrier(f, Total_X, bounds[1]-BARRIER_WIDTH, 0.0, BARRIER_LENGTH, idx)
 			Total_X += BARRIER_LENGTH
 			idx += 1
 		Total_X = bounds[0] + BARRIER_LENGTH/2.0
 		while(Total_X + BARRIER_LENGTH/4.0<= bounds[2]):
-			AddBarrier(f, Total_X, bounds[3]+BARRIER_WIDTH/2.0, 0.0, BARRIER_LENGTH, idx)
+			#AddBarrier(f, Total_X, bounds[3]+BARRIER_WIDTH/2.0, 0.0, BARRIER_LENGTH, idx)
+			AddBarrier(f, Total_X, bounds[3]+BARRIER_WIDTH, 0.0, BARRIER_LENGTH, idx)
 			Total_X += BARRIER_LENGTH
 			idx += 1
 		Total_Y = bounds[1] + BARRIER_LENGTH/2.0
 		while(Total_Y + BARRIER_LENGTH/4.0<= bounds[3]):
-			AddBarrier(f, bounds[0]-BARRIER_WIDTH/2.0, Total_Y, np.pi/2.0, BARRIER_LENGTH, idx)
+			#AddBarrier(f, bounds[0]-BARRIER_WIDTH/2.0, Total_Y, np.pi/2.0, BARRIER_LENGTH, idx)
+			AddBarrier(f, bounds[0]-BARRIER_WIDTH, Total_Y, np.pi/2.0, BARRIER_LENGTH, idx)
 			Total_Y += BARRIER_LENGTH
 			idx += 1
 		Total_Y = bounds[1] + BARRIER_LENGTH/2.0
 		while(Total_Y + BARRIER_LENGTH/4.0 <= bounds[3]):
-			AddBarrier(f, bounds[2]+BARRIER_WIDTH/2.0, Total_Y, np.pi/2.0, BARRIER_LENGTH, idx)
+			#AddBarrier(f, bounds[2]+BARRIER_WIDTH/2.0, Total_Y, np.pi/2.0, BARRIER_LENGTH, idx)
+			AddBarrier(f, bounds[2]+BARRIER_WIDTH, Total_Y, np.pi/2.0, BARRIER_LENGTH, idx)
 			Total_Y += BARRIER_LENGTH
 			idx += 1
 		
@@ -201,22 +205,26 @@ def CreateCustomMapWorld(filename, bounds, obstacles):
 		'''
 		Total_X = bounds[0] + BARRIER_LENGTH/2.0
 		while(Total_X + BARRIER_LENGTH/4.0 <= bounds[2]):
-			AddBarierState(f, Total_X, bounds[1]-BARRIER_WIDTH/2.0, 0.0, idx)
+			#AddBarierState(f, Total_X, bounds[1]-BARRIER_WIDTH/2.0, 0.0, idx)
+			AddBarierState(f, Total_X, bounds[1]-BARRIER_WIDTH, 0.0, idx)
 			Total_X += BARRIER_LENGTH
 			idx += 1
 		Total_X = bounds[0] + BARRIER_LENGTH/2.0
 		while(Total_X + BARRIER_LENGTH/4.0 <= bounds[2]):
-			AddBarierState(f, Total_X, bounds[3]+BARRIER_WIDTH/2.0, 0.0, idx)
+			#AddBarierState(f, Total_X, bounds[3]+BARRIER_WIDTH/2.0, 0.0, idx)
+			AddBarierState(f, Total_X, bounds[3]+BARRIER_WIDTH, 0.0, idx)
 			Total_X += BARRIER_LENGTH
 			idx += 1
 		Total_Y = bounds[1] + BARRIER_LENGTH/2.0
 		while(Total_Y + BARRIER_LENGTH/4.0 <= bounds[3]):
-			AddBarierState(f, bounds[0]-BARRIER_WIDTH/2.0, Total_Y, np.pi/2.0, idx)
+			#AddBarierState(f, bounds[0]-BARRIER_WIDTH/2.0, Total_Y, np.pi/2.0, idx)
+			AddBarierState(f, bounds[0]-BARRIER_WIDTH, Total_Y, np.pi/2.0, idx)
 			Total_Y += BARRIER_LENGTH
 			idx += 1
 		Total_Y = bounds[1] + BARRIER_LENGTH/2.0
 		while(Total_Y + BARRIER_LENGTH/4.0 <= bounds[3]):
-			AddBarierState(f, bounds[2]+BARRIER_WIDTH/2.0, Total_Y, np.pi/2.0, idx)
+			#AddBarierState(f, bounds[2]+BARRIER_WIDTH/2.0, Total_Y, np.pi/2.0, idx)
+			AddBarierState(f, bounds[2]+BARRIER_WIDTH, Total_Y, np.pi/2.0, idx)
 			Total_Y += BARRIER_LENGTH
 			idx += 1
 		

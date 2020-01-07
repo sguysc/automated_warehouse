@@ -30,7 +30,7 @@ pix2m = 1.0 #0.2 #[m]
 
 #umax    = 2.6 * 1.6 * 1000.0 / 3600.0  # mph -> m/sec     5.0
 #umax    = .3  # jackal m/sec     5.0
-umax    = 0.5 #1.0  # jackal m/sec     5.0
+umax    = 0.3 #1.0  # jackal m/sec     5.0
 delmax  = 80.0*np.pi/180.0  #rad   30.0 80
 logger = None			
 
@@ -436,8 +436,8 @@ class Jackal:
 			
 			#import pdb; pdb.set_trace()
 			u = u_0 - K.dot(err_rel)
-			#u[0] = self.LPF(u[0], self.delta_prev, tau=10.)
-			#self.delta_prev = u[0]
+			u[0] = self.LPF(u[0], self.delta_prev, tau=2.)
+			self.delta_prev = u[0]
 			#if(do_calc == False):
 			u[1] = self.LPF(u[1], self.u[1], tau=2.)
 			self.v_prev = u[1]

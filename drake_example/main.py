@@ -480,8 +480,8 @@ class Jackal:
 
 			#import pdb; pdb.set_trace()
 			u = u_0 - K.dot(err_rel)
-			#u[0] = self.LPF(u[0], self.delta_prev, tau=10.)
-			#self.delta_prev = u[0]
+			u[0] = self.LPF(u[0], self.delta_prev, tau=2.)
+			self.delta_prev = u[0]
 			#if(do_calc == False):
 			u[1] = self.LPF(u[1], self.u[1], tau=2.)
 			self.v_prev = u[1]

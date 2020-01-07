@@ -169,6 +169,7 @@ def CreateFunnels():
 		plt.pause(0.05)
 		#plt.show(block = False)
 
+	# REMEMBER TO COMMENT THIS IF THE PRIMITIVES ARE GOOD TO BEGIN WITH!!!!
 	MotionPrimitives = FixBadPrimitives(MotionPrimitives, 7, 8)
 	MotionPrimitives = FixBadPrimitives(MotionPrimitives, 3, 4)
 	
@@ -200,6 +201,9 @@ def FixBadPrimitives(MotionPrimitives, fix_this, with_this):
 		MotionPrimitives[fix_this]['V'][i][2][2]    = MotionPrimitives[with_this]['V'][i][2][2] #V
 		
 		MotionPrimitives[fix_this]['K'][i]          = MotionPrimitives[with_this]['K'][i] #K
+		MotionPrimitives[fix_this]['K'][i][0][0]    = -MotionPrimitives[with_this]['K'][i][0][0] #K
+		MotionPrimitives[fix_this]['K'][i][1][1]    = -MotionPrimitives[with_this]['K'][i][1][1] #K
+		MotionPrimitives[fix_this]['K'][i][1][2]    = -MotionPrimitives[with_this]['K'][i][1][2] #K
 	
 	#import pdb; pdb.set_trace()
 	__, N = MotionPrimitives[fix_this]['xtraj'].shape
