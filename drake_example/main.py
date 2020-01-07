@@ -46,15 +46,18 @@ ft2m   = 0.3048
 umax   = 0.3 #1.0  # jackal m/sec     5.0
 delmax = 80.0*np.pi/180.0  #rad   30.0 80
 logger = None
+CALIB_ANGLE_THETA = 0.0 #I've changed the angle in the optitrack software-0.16 #[rad]
 
 # class to handle a single robot comm.
 class Jackal:
 	def __init__(self, idx, map_file=MAP_FILE, aut_file=SYNTH_AUTOMATA_FILE, mp_file=MP_MAP_FILE, l2b_file=LABEL2BIT_FILE):
+		global CALIB_ANGLE_THETA
+		
 		self.all_topics_loaded = False
 		self.Fs = 10 # main/control loop frequency
 		self.idx = idx
 		self.msg_num = 0
-		self.pose   = np.array([14.0, 14.0, np.pi/2.0]) #None
+		self.pose   = np.array([0.0, 0.0, 0.0*np.pi/2.0]) #None
 		self.linvel = None
 		self.rotvel = None
 		self.last_linvel = None
@@ -120,6 +123,7 @@ class Jackal:
 			# get data
 			self.sensors_sub  = rospy.Subscriber('/gazebo/model_states', ModelStates, self.measurement_cb)
 			#self.sensors_sub = rospy.Subscriber('/gazebo/default/pose/info', ModelStates, self.measurement_cb)
+			CALIB_ANGLE_THETA = 0.0 # don't apply this to simulation mode
 		else:
 			#self.control_pub  = rospy.Publisher('/jackal_velocity_controller/cmd_vel', Twist, queue_size=1) #Jackal
 			self.control_pub  = rospy.Publisher('/cmd_vel', Twist, queue_size=1) #Jackal
@@ -179,9 +183,10 @@ class Jackal:
 
 		# get euler angles to know heading
 		angles = euler_from_quaternion([Q.x, Q.y, Q.z, Q.w])
-
+		theta = angles[2] + CALIB_ANGLE_THETA # remove bias from yaw in case we're in the lab
+		
 		# if we move quadrant, unwrap from the previous angle
-		theta = np.unwrap([self.pose[2], angles[2]])
+		theta = np.unwrap([self.pose[2], theta])
 
 		# store for other uses
 		self.pose = np.array([pose.x, pose.y, theta[1]]) # (gazebo->mine axes match )
@@ -485,8 +490,6 @@ class Jackal:
 				#self.v_prev = 0.0
 				#u[1] = 0.0
 
-
-
 			#saturations
 			if(u[1] > umax):
 				u[1] = umax
@@ -523,7 +526,8 @@ class Jackal:
 		#V,W = self.LimitCmds(u[1], u[1] / self.L * np.tan(u[0]))
 		#self.u = np.array([W,V])
 		#t.angular.z = W
-		t.angular.z = u[1] / self.L * np.tan(u[0]) # delta
+		t.angular.z = u[1] / self.L * np.tan(u[0]) # delta; 1.0/umax is a gain to compensate 1.0/umax *
+		# the fact that I am running in less than 1.0m/s in the lab
 		#t.linear.x  = V #u[1] # V
 		t.linear.x  = u[1] # V
 		#print('v = %f' %u[1])
