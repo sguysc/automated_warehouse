@@ -43,8 +43,8 @@ MP_MAP_FILE = MAP + '.pickle'
 LABEL2BIT_FILE = MAP + '.label2bit'
 pix2m  = 1.0 #0.2 #[m]
 ft2m   = 0.3048
-umax   = 0.3 #1.0  # jackal m/sec     5.0
-delmax = 80.0*np.pi/180.0  #rad   30.0 80
+umax   = 0.5 #1.0  # jackal m/sec     5.0
+delmax = 45.0*np.pi/180.0  # jackal rad   30.0 80
 logger = None
 CALIB_ANGLE_THETA = 0.0 #I've changed the angle in the optitrack software-0.16 #[rad]
 
@@ -480,8 +480,8 @@ class Jackal:
 
 			#import pdb; pdb.set_trace()
 			u = u_0 - K.dot(err_rel)
-			u[0] = self.LPF(u[0], self.delta_prev, tau=2.)
-			self.delta_prev = u[0]
+			#u[0] = self.LPF(u[0], self.delta_prev, tau=10.)
+			#self.delta_prev = u[0]
 			#if(do_calc == False):
 			u[1] = self.LPF(u[1], self.u[1], tau=2.)
 			self.v_prev = u[1]

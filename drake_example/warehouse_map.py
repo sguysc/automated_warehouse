@@ -21,7 +21,9 @@ from shapely.geometry import Polygon, box
 
 from StructuredSlugsParser import compiler as slugscomp
 
-from DubinsPlantCar import CELL_SIZE
+# I commented this because it causes loading DubinsPlantCar which tries to load pydrake which is unavailable in the lab computer
+#from DubinsPlantCar import CELL_SIZE
+CELL_SIZE = 0.25 #[m]
 
 import GeometryFunctions as gf
 import ROSUtilities as RU

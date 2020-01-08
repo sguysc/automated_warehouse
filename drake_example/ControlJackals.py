@@ -30,8 +30,8 @@ pix2m = 1.0 #0.2 #[m]
 
 #umax    = 2.6 * 1.6 * 1000.0 / 3600.0  # mph -> m/sec     5.0
 #umax    = .3  # jackal m/sec     5.0
-umax    = 0.3 #1.0  # jackal m/sec     5.0
-delmax  = 80.0*np.pi/180.0  #rad   30.0 80
+umax    = 0.5 #1.0  # jackal m/sec     5.0
+delmax  = 45.0*np.pi/180.0  # jackal rad   30.0 80
 logger = None			
 
 # class to handle a single robot comm.
