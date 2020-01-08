@@ -26,7 +26,7 @@ CELL_SIZE = 0.25 # [m]  Jackal - gazebo, forklift
 @TemplateSystem.define("DubinsCarPlant_")
 def DubinsCarPlant_(T):
 	class Impl(LeafSystem_[T]):
-		def _construct(self, converter=None):
+		def _construct(self, converter=None, umax=1.0, delmax=1.3963):
 			# car model:
 			# ==========
 			# X = [x y theta]';    U = [delta v]'   [steer ang, fwd vel]'
@@ -44,7 +44,7 @@ def DubinsCarPlant_(T):
 			# three positions, no velocities
 			self.DeclareContinuousState(self.nX, 0, 0)
 
-			self.knotPoints = 4
+			self.knotPoints = 5
 			#self.knotPoints = 4
 			self.ex_knots = self.knotPoints
 			
@@ -59,8 +59,8 @@ def DubinsCarPlant_(T):
 			self.CG_B   = 0.425 # Bumper to Drive Tire Center , for a 36inch length fork, dimension L in spec.
 			self.CG_F   = self.TotalL-self.CG_B # tire center to front, dimension B-L in spec.
 			#self.umax   = 2.6 * 1.6 * 1000.0 / 3600.0  # mph -> m/sec     5.0
-			self.umax   = 1.0  # jackal m/sec     5.0
-			self.delmax = 80.0*math.pi/180.0  #rad   30.0 80
+			self.umax   = umax #1.0  # jackal m/sec     5.0
+			self.delmax = delmax #80.0*math.pi/180.0  #rad   30.0 80
 			self.usat   = np.array([ [-self.delmax, self.delmax], \
 									 [ 0.0, self.umax] ]) 
 			#self.usat   = np.array([ [-self.delmax/1., self.delmax/1.], \
@@ -1516,7 +1516,7 @@ def runFunnel():
 	print('******\nrunning Funnel algorithm ...\n******')
 	
     # Declare pendulum model
-	plant = DubinsCarPlant_[float]() #None]  # Default instantiation
+	plant = DubinsCarPlant_[float](umax=0.5, delmax=45.0*math.pi/180.0) #None]  # Default instantiation
 		
 	# Trajectory optimization to get nominal trajectory
 	#x0 = (0.0, 0.0, -math.pi/4.0)  #Initial state that trajectory should start from
@@ -1528,7 +1528,7 @@ def runFunnel():
 	#x0 = (0.0, 0.0, 0.0)
 	#xf = (0.0, 4.0, 180.0*math.pi/180.0)
 	x0 = (0.0, 0.0, 0.0)
-	xf = (0.00,  CELL_SIZE*3.,  180.0*math.pi/180.0)
+	xf = (0.0,  CELL_SIZE*3.,  180.0*math.pi/180.0)
 	dist = np.linalg.norm(np.array(xf)-np.array(x0))
 	tf0 = dist/(plant.umax*0.8) # Guess for how long trajectory should take
 	#tf0 = 2.4

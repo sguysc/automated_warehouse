@@ -270,9 +270,7 @@ def ReplicateMap(map_kind = 'none'):
 		obs.append( box( 455.0, 1113.0, 564.0, 1269.0 ) ) # don't enter zone, in pixels
 		obs.append( box( 564.0,  830.0, 690.0, 1032.0 ) ) # don't enter zone, in pixels
 		obs.append( box( 537.0,  464.0, 690.0,  723.0 ) ) # don't enter zone, in pixels
-		
-		goals = np.array([[670., 90., 90.0*math.pi/180.0], [200., 990., 0.0*math.pi/180.0]])
-		
+				
 		W_Height = 233.0 * ft2m # [m]
 		W_Width  = 434.0 * ft2m # [m]
 		
@@ -297,23 +295,23 @@ def ReplicateMap(map_kind = 'none'):
 			no_enter.append(box( -4.0*ft2m, -12.*ft2m, 0.0*ft2m, -5.0*ft2m ) )
 		'''
 	elif(map_kind.lower() == 'lab'):
-		workspace = box( -8*ft2m, -12.0*ft2m, 9.0*ft2m, 11.0*ft2m ) 
+		workspace = box( -8*ft2m, -12.0*ft2m, 9.0*ft2m, 12.0*ft2m ) 
+		#workspace = box( -8*ft2m, -12.0*ft2m, 9.0*ft2m, 11.0*ft2m ) 
 		#workspace = box( -8.5*ft2m, -12.5*ft2m, 9.5*ft2m, 11.5*ft2m ) 
 
 		W_Height = workspace.bounds[2] - workspace.bounds[0]  # [m]
 		W_Width  = workspace.bounds[3] - workspace.bounds[1] # [m]
 
 		obs = []
-		obs.append( box( 6.*ft2m, -12.0*ft2m, 9.0*ft2m,  -4.0*ft2m ) ) # rack, in pixels
+		obs.append( box( 6.*ft2m, -12.0*ft2m, 9.0*ft2m,  -4.0*ft2m ) ) # charging station, in pixels
 		obs.append( box( 0.*ft2m, 0.*ft2m, 7.5*ft2m,  7.0*ft2m ) ) # table, in pixels
-		
-		goals = np.array([[ 2.5*ft2m, -7.0*ft2m,  90.0*math.pi/180.0], \
-						  [ 5.0*ft2m,  8.5*ft2m,  0.0*math.pi/180.0], \
-						  [-7.0*ft2m, -10.*ft2m, -90.0*math.pi/180.0] ]) 
-		
+				
 		no_enter = []
 		no_enter.append(box( -2.0*ft2m,  0.0*ft2m, 0.0*ft2m,  7.0*ft2m ) )
-		no_enter.append(box( -2.0*ft2m, -12.*ft2m, 0.0*ft2m, -5.0*ft2m ) )
+		no_enter.append(box( -8.0*ft2m, -5.5*ft2m, -3.0*ft2m, -4.5*ft2m ) )
+		#no_enter.append(box( -8.0*ft2m, -5.5*ft2m, -5.0*ft2m, -5.0*ft2m ) )
+		#no_enter.append(box( -2.0*ft2m, -12.*ft2m, -1.0*ft2m, -4.0*ft2m ) )
+		#no_enter.append(box( -2.0*ft2m, -12.*ft2m, 0.0*ft2m, -5.0*ft2m ) )
 			
 	elif(map_kind.lower() == 'map1'):
 		workspace = box( 0.0, 0.0, 100.0, 200.0 )
@@ -321,9 +319,7 @@ def ReplicateMap(map_kind = 'none'):
 		obs.append( box( 15., 50.0, 25.0,  150.0 ) ) # rack, in pixels
 		obs.append( box( 45., 50.0, 55.0,  150.0 ) ) # rack, in pixels
 		obs.append( box( 75., 50.0, 85.0,  130.0 ) ) # rack, in pixels
-		
-		goals = np.array([[63., 197., -90.0*math.pi/180.0], [877., 200., 90.0*math.pi/180.0]])
-		
+				
 		W_Height = 30.0 * ft2m # [m]
 		W_Width  = 60.0 * ft2m # [m]
 		
@@ -334,9 +330,6 @@ def ReplicateMap(map_kind = 'none'):
 		obs = []
 		obs.append( box( 30.0, 60.0, 50.0,  140.0 ) ) # rack, in pixels
 		
-		goals = np.array([[70., 70., 90.0*math.pi/180.0], \
-						  [10., 120., -90.0*math.pi/180.0]])
-		
 		W_Height = 20.0 # [m]
 		W_Width  = 40.0 # [m]
 		
@@ -344,12 +337,30 @@ def ReplicateMap(map_kind = 'none'):
 	
 	pix2m  = W_Width/(workspace.bounds[3]-workspace.bounds[1])
 	#import pdb; pdb.set_trace()
-	MapToFile(map_kind.lower(), workspace, obs, goals, no_enter, pix2m)
 	
 	toc = timer()
 	print('Loading map took %f[sec]' %(toc-tic))
 	
-	return workspace, obs, goals, no_enter
+	return workspace, obs, no_enter
+
+def GetGoals(map_kind = 'none'):
+	global pix2m
+	
+	tic = timer()
+		
+	if(map_kind.lower() == 'raymond'):
+		goals = np.array([[670., 90., 90.0*math.pi/180.0], [200., 990., 0.0*math.pi/180.0]])
+	elif(map_kind.lower() == 'lab'):
+		goals = np.array([[ 4.0*ft2m, -7.0*ft2m,  90.0*math.pi/180.0], \
+						  [ 5.0*ft2m,  8.5*ft2m,  0.0*math.pi/180.0], \
+						  [-7.0*ft2m, -9.*ft2m, -90.0*math.pi/180.0] ]) 
+	elif(map_kind.lower() == 'map1'):
+		goals = np.array([[63., 197., -90.0*math.pi/180.0], [877., 200., 90.0*math.pi/180.0]])
+	elif(map_kind.lower() == 'none'):
+		goals = np.array([[70., 70., 90.0*math.pi/180.0], \
+						  [10., 120., -90.0*math.pi/180.0]])
+	
+	return goals
 
 def MapToFile(map_kind, workspace, obstacles, goals, no_enter, scale):
 	data = {}
@@ -887,13 +898,16 @@ if __name__ == "__main__":
 		else:
 			force = False
 	
-	#map_kind = 'none' 
 	map_kind = 'lab' 
 	#map_kind = 'raymond'
+	
 	MP = LoadMP(fName='MPLibrary.lib')
 	MotionPrimitivesToFile(map_kind, MP)
 	#import pdb; pdb.set_trace()
-	workspace, obs, goals, no_enter = ReplicateMap(map_kind=map_kind) #
+	workspace, obs, no_enter = ReplicateMap(map_kind=map_kind) #
+	goals = GetGoals(map_kind=map_kind)
+	# save it to file
+	MapToFile(map_kind.lower(), workspace, obs, goals, no_enter, pix2m)
 	
 	DiGraph, ax = PopulateMapWithMP(MP, workspace, obs, no_enter, map_kind, cell_h=cell, cell_w=cell, force=force)
 	path = FindPathBetweenGoals(DiGraph, goals)

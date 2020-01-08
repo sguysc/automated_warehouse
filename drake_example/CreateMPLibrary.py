@@ -28,7 +28,20 @@ def CreateFunnels():
 	print('******\nCreating Motion primitives (Funnel algorithm) ...\n******')
 	
 	# (x,y,theta)
-	# Jackal - Lab cell 0.4[m]
+	# Jackal - Lab cell 0.25[m], umax=0.5, delmax=45
+	MotionPrimitives = { \
+			0: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4.,  0.00,  0.0), 'kp': 8, 'ex_kp': 8, 'traj': None}, \
+			1: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2.,  0.00,  0.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
+			2: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*1.,  0.00,  0.0), 'kp': 3, 'ex_kp': 3, 'traj': None}, \
+			3: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4.,  CELL_SIZE,  0.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
+			4: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4., -CELL_SIZE,  0.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
+			5: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2.,  CELL_SIZE*3.,  90.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
+			6: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2., -CELL_SIZE*3., -90.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
+			7: {'s': (0.0, 0.0, 0.0), 'e': (0.00,  CELL_SIZE*4.,  180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion }, \
+			8: {'s': (0.0, 0.0, 0.0), 'e': (0.00, -CELL_SIZE*4., -180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion }, \
+	}
+	'''
+	# Jackal - Lab cell 0.25[m], umax=1.0, delmax=80
 	MotionPrimitives = { \
 			0: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4.,  0.00,  0.0), 'kp': 8, 'ex_kp': 8, 'traj': None}, \
 			1: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2.,  0.00,  0.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
@@ -40,6 +53,7 @@ def CreateFunnels():
 			7: {'s': (0.0, 0.0, 0.0), 'e': (0.00,  CELL_SIZE*3.,  180.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': uturn_motion }, \
 			8: {'s': (0.0, 0.0, 0.0), 'e': (0.00, -CELL_SIZE*3., -180.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': uturn_motion }, \
 	}
+	'''
 	''' # Jackal - Lab cell 0.4[m]
 	MotionPrimitives = { \
 			0: {'s': (0.0, 0.0, 0.0), 'e': (1.60,  0.00,  0.0), 'kp': 8, 'ex_kp': 8, 'traj': None}, \
@@ -104,7 +118,7 @@ def CreateFunnels():
 	plt.pause(0.05)
 	
     # Declare pendulum model
-	plant = DubinsCarPlant_[float]() #None]  # Default instantiation
+	plant = DubinsCarPlant_[float](umax=0.5, delmax=45.0*np.pi/180.0) #None]  # Default instantiation
 	
 	for idx, mp in MotionPrimitives.items():
 		print('Computing motion primitive %d/%d ...' %(idx+1, len(MotionPrimitives)))
@@ -170,8 +184,8 @@ def CreateFunnels():
 		#plt.show(block = False)
 
 	# REMEMBER TO COMMENT THIS IF THE PRIMITIVES ARE GOOD TO BEGIN WITH!!!!
-	MotionPrimitives = FixBadPrimitives(MotionPrimitives, 7, 8)
-	MotionPrimitives = FixBadPrimitives(MotionPrimitives, 3, 4)
+	#MotionPrimitives = FixBadPrimitives(MotionPrimitives, 7, 8)
+	#MotionPrimitives = FixBadPrimitives(MotionPrimitives, 3, 4)
 	
 	import pdb; pdb.set_trace()
 	dbfile = open('MPLibrary.lib', 'wb')

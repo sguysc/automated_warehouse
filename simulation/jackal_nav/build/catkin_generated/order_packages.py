@@ -2,4 +2,4 @@
 source_root_dir = "/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/src"
 whitelisted_packages = "".split(';') if "" != "" else []
 blacklisted_packages = "".split(';') if "" != "" else []
-underlay_workspaces = "/home/cornell/Tools/ws_moveit/devel;/opt/ros/kinetic".split(';') if "/home/cornell/Tools/ws_moveit/devel;/opt/ros/kinetic" != "" else []
+underlay_workspaces = "/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/devel;/home/cornell/Tools/ws_moveit/devel;/opt/ros/kinetic".split(';') if "/home/cornell/Documents/Projects/AutomatedWarehouse/simulation/jackal_nav/devel;/home/cornell/Tools/ws_moveit/devel;/opt/ros/kinetic" != "" else []
