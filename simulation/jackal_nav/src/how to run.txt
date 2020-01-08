@@ -1,0 +1,11 @@
+http://wiki.ros.org/multi_jackal_tutorials
+
+source devel/setup.bash
+
+how to run gazebo with 4 jackals:
+roslaunch multi_jackal_tutorials four_jackal.launch rviz:=true
+
+control via keys:
+./key_publisher.py
+{for i=0:n}
+	./controlJackal.py --n {i}

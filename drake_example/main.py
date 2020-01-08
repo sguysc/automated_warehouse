@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python
 
 # general stuff
 import numpy as np
@@ -13,7 +13,7 @@ from time import localtime, strftime
 from warehouse_map import LoadMP, GetSpecificControl, find_nearest, GetRotmat, FL_L
 
 # lab or simulation
-SIMULATION = False
+SIMULATION = True
 
 # ROS stuff
 import rospy
@@ -180,7 +180,7 @@ class Jackal:
 			# get the rates in the same rate as the pose
 			self.linvel = self.last_linvel
 			self.rotvel = self.last_rotvel
-
+		
 		# get euler angles to know heading
 		angles = euler_from_quaternion([Q.x, Q.y, Q.z, Q.w])
 		theta = angles[2] + CALIB_ANGLE_THETA # remove bias from yaw in case we're in the lab
@@ -547,7 +547,7 @@ if __name__ == '__main__':
 	logger      = logging.getLogger(__name__)
 	#formatter = logging.Formatter('%(asctime)s - %(message)s')
 	formatter   = logging.Formatter('%(message)s')
-	fileHandler = logging.FileHandler(log_file, mode='w')
+	fileHandler = logging.FileHandler('../telemetry/' + log_file, mode='w')
 	fileHandler.setFormatter(formatter)
 	logger.setLevel(level)
 	logger.addHandler(fileHandler)

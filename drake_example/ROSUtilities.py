@@ -277,10 +277,11 @@ def CreateCustomMapWorld(filename, bounds, obstacles):
 		f.write('  </world>\n')
 		f.write('</sdf>\n')
 	
+	dest_folder = '../simulation/jackal_nav/src/multi_jackal_tutorials/worlds/'
 	#dest_folder = '../simulation/jackal_nav/src/jackal_simulator/jackal_gazebo/worlds/'
-	#dest = shutil.copyfile(filename + '.world', dest_folder + 'jackal_race.world') 
-	#print('Copied map to location ' + dest_folder)
-	print('Map Not copied to Gazebo. Fix Simulation ')
+	dest = shutil.copyfile(filename + '.world', dest_folder + 'jackal_race.world') 
+	print('Copied map to location ' + dest_folder)
+	#print('Map Not copied to Gazebo. Fix Simulation ')
 		
 def AddBarrier(f, x, y, yaw, length, idx):
 	f.write('    <model name=\'jersey_barrier_%d\'>\n' %(idx))
@@ -989,14 +990,14 @@ def CreateJackals(filename, IC=[[0.0,0.0,0.0]]):
 		for i in range(N):
 			f.write('  <arg name="config%d"    default="front_laser"/>\n' %(i))
 			f.write('  <arg name="config%d_id" default="%d"/>\n' %(i,i))
-		f.write('  <arg name="world"      default="stuff.world"/>\n')
+		f.write('  <arg name="world"      default="jackal_race.world"/>\n')
 		f.write('  \n')
 		f.write('  <!-- Start Gazebo with an empty world. -->\n')
 		f.write('  <include file="$(find gazebo_ros)/launch/empty_world.launch">\n')
 		f.write('    <arg name="use_sim_time" value="true"/>\n')
 		f.write('    <arg name="gui"          value="$(arg gui)"/>	\n')
-		f.write('	<arg name="world_name"   value="$(find jackal_gazebo)/worlds/jackal_race.world"/>  \n')
-		f.write('    <!--arg name="world_name"   value="$(find multi_jackal_tutorials)/worlds/$(arg world)"/-->\n')
+		f.write('	<!--arg name="world_name"   value="$(find jackal_gazebo)/worlds/jackal_race.world"/-->  \n')
+		f.write('    <arg name="world_name"   value="$(find multi_jackal_tutorials)/worlds/$(arg world)"/>\n')
 		f.write('  </include>\n')
 		f.write('  \n')
 		f.write('  <!-- Spawn the robots. -->\n')
@@ -1021,10 +1022,10 @@ def CreateJackals(filename, IC=[[0.0,0.0,0.0]]):
 		f.write('  </group>\n')
 		f.write('</launch>\n')
 
-	#dest_folder = '../simulation/jackal_nav/src/multi_jackal/multi_jackal_tutorials/launch/'
-	#dest = shutil.copyfile(filename + '.launch', dest_folder + 'jackal_AW.launch') 
-	#print('Copied Jackal configuration to location ' + dest_folder)
-	print('Jackal configuration was not copied. Fix Simulation installation')
+	dest_folder = '../simulation/jackal_nav/src/multi_jackal_tutorials/launch/'
+	dest = shutil.copyfile(filename + '.launch', dest_folder + 'jackal_AW.launch') 
+	print('Copied Jackal configuration to location ' + dest_folder)
+	#print('Jackal configuration was not copied. Fix Simulation installation')
 	
 	
 if __name__ == '__main__':
