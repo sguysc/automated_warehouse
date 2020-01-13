@@ -15,12 +15,14 @@ if ~isequal(file,0)
 else
     return
 end
+map_name = 'lab';
+%map_name = 'raymond';
 
-map_text = fileread('lab.map');
+map_text = fileread([map_name '.map']);
 map_data = jsondecode(map_text);
-mp_text = fileread('lab.motion');
+mp_text = fileread([map_name '.motion']);
 mp_data = jsondecode(mp_text);
-states_text = fileread('lab.states');
+states_text = fileread([map_name '.states']);
 states_data = jsondecode(states_text);
 
 delimiter = {',',';'};
@@ -64,16 +66,23 @@ u_ref_new = telemetry(:,26:27);
 
 %pix2m = 0.2;
 %obstacle = [30.0, 60.0, 50.0,  140.0 ]*pix2m;
+num_robots = map_data.robots;
+
 obstacle = [];
 for i =1:length(map_data.obstacles)
     obstacle = [obstacle; map_data.obstacles(i).x, map_data.obstacles(i).y, map_data.obstacles(i).X,  map_data.obstacles(i).Y  ];
 end	
 %goals = [70., 70., 90.0; ...
 %         10., 120., -90.0]*pix2m;
-goals = [];
-for i =1:length(map_data.goals)
-    goals = [goals; map_data.goals(i).x, map_data.goals(i).y, map_data.goals(i).teta ] ;
-end	
+% need to add dimension here for several robots
+goals = {};
+for r = 1:num_robots
+    goals_robot_i = map_data.(['r' num2str(r-1)]);
+    goals{r} = [];
+    for i = 1:length(goals_robot_i)
+        goals{r} = [goals{r}; goals_robot_i(i).x, goals_robot_i(i).y, goals_robot_i(i).teta ] ;
+    end	
+end
 
 no_enter = [];
 for i =1:length(map_data.no_enter)
@@ -210,10 +219,12 @@ for i=1:size(no_enter,1)
         ['No Entrance #' num2str(i)])
     
 end
-for i=1:size(goals,1)
-    plot(goals(i,2), goals(i,1), 's', 'MarkerSize', 16, 'Color', [0,0.5,0]);
-    text(goals(i,2)+0.1, goals(i,1)+0.1, ...
-        ['goal ' num2str(i)], 'Color', [0,0.5,0],'FontWeight','bold')
+for r = 1:num_robots
+    for i=1:size(goals{r},1)
+        plot(goals{r}(i,2), goals{r}(i,1), 's', 'MarkerSize', 16, 'Color', [0,0.5,0]);
+        text(goals{r}(i,2)+0.1, goals{r}(i,1)+0.1, ...
+            ['r' num2str(r) 'g' num2str(i)], 'Color', [0,0.5,0],'FontWeight','bold')
+    end
 end
 axis equal
 %axis([bounds(2) bounds(4) -bounds(3) -bounds(1)])

@@ -976,6 +976,7 @@ def AddLongShelf(f, x, y, yaw, length, width, idx):
 
 	
 def CreateJackals(filename, IC=[[0.0,0.0,0.0]]):
+	
 	N = len(IC)
 	with open(filename + '.launch', 'w') as f: 	
 		f.write('<?xml version="1.0"?>\n')
