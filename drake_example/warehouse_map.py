@@ -17,6 +17,7 @@ import networkx as nx
 
 from numpy import linalg as LA
 from shapely.geometry import Polygon, box
+#from mayavi import mlab
 
 from StructuredSlugsParser import compiler as slugscomp
 
@@ -236,112 +237,27 @@ def ReplicateMap(map_kind = 'none'):
 	global pix2m
 	
 	tic = timer()
-		
-	if(map_kind.lower() == 'raymond'):
-		# manually done from the warehouse map we got from Raymond
-		rack_w = 12.0
-		#shapely.geometry.box(minx, miny, maxx, maxy, ccw=True)
-		workspace = box( 27.0, 40.0, 690.0, 1269.0 )
-		obs = []
-		obs.append( box( 115.0,  46.0, 630.0,  46.0+rack_w*1.0 ) ) # rack, in pixels
-		obs.append( box( 115.0,  71.0, 630.0,  71.0+rack_w*1.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 100.0, 610.0, 100.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 140.0, 630.0, 140.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 181.0, 610.0, 181.0+rack_w*1.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 201.0, 630.0, 201.0+rack_w*1.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 229.0, 610.0, 229.0+rack_w*1.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 255.0, 630.0, 255.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 295.0, 610.0, 295.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 333.0, 630.0, 333.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 373.0, 610.0, 373.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 412.0, 610.0, 412.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 467.0, 469.0, 467.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 510.0, 469.0, 510.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 549.0, 469.0, 549.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 588.0, 469.0, 588.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 629.0, 469.0, 629.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 667.0, 469.0, 667.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 706.0, 469.0, 706.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 766.0, 492.0, 766.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 805.0, 515.0, 805.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 844.0, 515.0, 844.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 884.0, 515.0, 884.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 924.0, 515.0, 924.0+rack_w*2.0 ) ) # rack, in pixels
-		obs.append( box( 186.0, 963.0, 515.0, 963.0+rack_w*1.0 ) ) # rack, in pixels
-
-		obs.append( box(  27.0,   95.0, 145.0, 1070.0 ) ) # don't enter zone, in pixels
-		obs.append( box( 455.0, 1113.0, 564.0, 1269.0 ) ) # don't enter zone, in pixels
-		obs.append( box( 564.0,  830.0, 690.0, 1032.0 ) ) # don't enter zone, in pixels
-		obs.append( box( 537.0,  464.0, 690.0,  723.0 ) ) # don't enter zone, in pixels
-				
-		W_Height = 233.0 * ft2m # [m]
-		W_Width  = 434.0 * ft2m # [m]
-		
-		no_enter = []
-		'''
-		elif(map_kind.lower() == 'lab'):
-			workspace = box( -8*ft2m, -12.0*ft2m, 9.0*ft2m, 11.0*ft2m ) 
-
-			W_Height = workspace.bounds[2] - workspace.bounds[0]  # [m]
-			W_Width  = workspace.bounds[3] - workspace.bounds[1] # [m]
-
-			obs = []
-			obs.append( box( 6.*ft2m, -12.0*ft2m, 9.0*ft2m,  -4.0*ft2m ) ) # rack, in pixels
-			obs.append( box( 0.*ft2m, 0.*ft2m, 7.5*ft2m,  7.0*ft2m ) ) # table, in pixels
-
-			goals = np.array([[ 2.5*ft2m, -7.0*ft2m,  90.0*math.pi/180.0], \
-							  [ 5.0*ft2m,  8.5*ft2m,  0.0*math.pi/180.0], \
-							  [-7.0*ft2m, -10.*ft2m, -90.0*math.pi/180.0] ]) 
-
-			no_enter = []
-			no_enter.append(box( -4.0*ft2m,  0.0*ft2m, 0.0*ft2m,  7.0*ft2m ) )
-			no_enter.append(box( -4.0*ft2m, -12.*ft2m, 0.0*ft2m, -5.0*ft2m ) )
-		'''
-	elif(map_kind.lower() == 'lab'):
-		workspace = box( -8*ft2m, -12.0*ft2m, 9.0*ft2m, 12.0*ft2m ) 
-		#workspace = box( -8*ft2m, -12.0*ft2m, 9.0*ft2m, 11.0*ft2m ) 
-		#workspace = box( -8.5*ft2m, -12.5*ft2m, 9.5*ft2m, 11.5*ft2m ) 
-
-		W_Height = workspace.bounds[2] - workspace.bounds[0]  # [m]
-		W_Width  = workspace.bounds[3] - workspace.bounds[1] # [m]
-
-		obs = []
-		obs.append( box( 6.*ft2m, -12.0*ft2m, 9.0*ft2m,  -4.0*ft2m ) ) # charging station, in pixels
-		obs.append( box( -0.*ft2m, 0.*ft2m, 7.5*ft2m,  7.0*ft2m ) ) # table, in pixels
-				
-		no_enter = []
-		no_enter.append(box( -2.0*ft2m,  0.0*ft2m, 0.0*ft2m,  7.0*ft2m ) )
-		no_enter.append(box( -8.0*ft2m, -5.5*ft2m, -3.0*ft2m, -4.5*ft2m ) )
-		#no_enter.append(box( -2.0*ft2m,  0.0*ft2m, 0.0*ft2m,  7.0*ft2m ) )
-		#no_enter.append(box( -1.5*ft2m, -12.0*ft2m, -.5*ft2m, -8.*ft2m ) )
-		#no_enter.append(box( -8.0*ft2m, -5.5*ft2m, -5.0*ft2m, -5.0*ft2m ) )
-		#no_enter.append(box( -2.0*ft2m, -12.*ft2m, -1.0*ft2m, -4.0*ft2m ) )
-		#no_enter.append(box( -2.0*ft2m, -12.*ft2m, 0.0*ft2m, -5.0*ft2m ) )
-			
-	elif(map_kind.lower() == 'map1'):
-		workspace = box( 0.0, 0.0, 100.0, 200.0 )
-		obs = []
-		obs.append( box( 15., 50.0, 25.0,  150.0 ) ) # rack, in pixels
-		obs.append( box( 45., 50.0, 55.0,  150.0 ) ) # rack, in pixels
-		obs.append( box( 75., 50.0, 85.0,  130.0 ) ) # rack, in pixels
-				
-		W_Height = 30.0 * ft2m # [m]
-		W_Width  = 60.0 * ft2m # [m]
-		
-		no_enter = []
-		
-	elif(map_kind.lower() == 'none'):
-		workspace = box( 0.0, 0.0, 100.0, 200.0 )
-		obs = []
-		obs.append( box( 30.0, 60.0, 50.0,  140.0 ) ) # rack, in pixels
-		
-		W_Height = 20.0 # [m]
-		W_Width  = 40.0 # [m]
-		
-		no_enter = []
 	
+	with open(map_kind + '.specification', 'r') as spec_file:
+		spec = json.load(spec_file)
+	
+	workspace = box(*spec['workspace'])
+	obstacles = spec["obstacles"]
+	no_entrance = spec["no_entrance"]
+	obs = []
+	no_enter = []
+	for val in obstacles.values():
+		if(len(val)>0):
+			obs.append(box(*val))
+	for val in no_entrance.values():
+		if(len(val)>0):
+			no_enter.append(box(*val))
+
+	W_Height = workspace.bounds[2] - workspace.bounds[0]  # [m]
+	W_Width  = workspace.bounds[3] - workspace.bounds[1] # [m]
+		
 	pix2m  = W_Width/(workspace.bounds[3]-workspace.bounds[1])
-	#import pdb; pdb.set_trace()
+	import pdb; pdb.set_trace()
 	
 	toc = timer()
 	print('Loading map took %f[sec]' %(toc-tic))
