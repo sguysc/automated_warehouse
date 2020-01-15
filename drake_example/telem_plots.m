@@ -15,8 +15,8 @@ if ~isequal(file,0)
 else
     return
 end
-map_name = 'lab';
-%map_name = 'raymond';
+%map_name = 'lab';
+map_name = 'raymond';
 
 map_text = fileread([map_name '.map']);
 map_data = jsondecode(map_text);
@@ -89,6 +89,18 @@ for i =1:length(map_data.no_enter)
     no_enter = [no_enter; map_data.no_enter(i).x, map_data.no_enter(i).y, map_data.no_enter(i).X,  map_data.no_enter(i).Y  ];
 end	
 
+one_ways_N = []; one_ways_S = []; one_ways_E = []; one_ways_W = [];
+for i =1:length(map_data.one_ways)
+    if(map_data.one_ways(i).D == 2)
+        one_ways_N = [one_ways_N; map_data.one_ways(i).x, map_data.one_ways(i).y, map_data.one_ways(i).X,  map_data.one_ways(i).Y  ];
+    elseif (map_data.one_ways(i).D == 1)
+        one_ways_E = [one_ways_E; map_data.one_ways(i).x, map_data.one_ways(i).y, map_data.one_ways(i).X,  map_data.one_ways(i).Y  ];
+    elseif (map_data.one_ways(i).D == 0)
+        one_ways_S = [one_ways_S; map_data.one_ways(i).x, map_data.one_ways(i).y, map_data.one_ways(i).X,  map_data.one_ways(i).Y  ];
+    elseif (map_data.one_ways(i).D == 3)
+        one_ways_W = [one_ways_W; map_data.one_ways(i).x, map_data.one_ways(i).y, map_data.one_ways(i).X,  map_data.one_ways(i).Y  ];
+    end
+end	
 % lab
 %path = {'H1X12Y6', 'H3X15Y26', 'H3X1Y2'};
 path = {states_data.state};
@@ -226,6 +238,32 @@ for r = 1:num_robots
             ['r' num2str(r) 'g' num2str(i)], 'Color', [0,0.5,0],'FontWeight','bold')
     end
 end
+
+for i=1:size(one_ways_N,1)
+    p1 = [(one_ways_N(i,2)+one_ways_N(i,4))/2 one_ways_N(i,3)];                         % First Point
+    p2 = [(one_ways_N(i,2)+one_ways_N(i,4))/2 one_ways_N(i,1)];                         % Second Point
+    dp = p2-p1;                         % Difference
+    quiver(p1(1),p1(2),dp(1),1.0*dp(2),0.0, 'Color', [0.7, 0.7, 0.9], 'LineWidth',2)
+end
+for i=1:size(one_ways_S,1)
+    p1 = [(one_ways_S(i,2)+one_ways_S(i,4))/2 one_ways_S(i,1)];                         % First Point
+    p2 = [(one_ways_S(i,2)+one_ways_S(i,4))/2 one_ways_S(i,3)];                         % Second Point
+    dp = p2-p1;                         % Difference
+    quiver(p1(1),p1(2),dp(1),1.00*dp(2),0.0, 'Color', [0.7, 0.7, 0.9], 'LineWidth',2)
+end
+for i=1:size(one_ways_E,1)
+    p1 = [one_ways_E(i,2) (one_ways_E(i,1)+one_ways_E(i,3))/2];                         % First Point
+    p2 = [one_ways_E(i,4) (one_ways_E(i,1)+one_ways_E(i,3))/2];                         % Second Point
+    dp = p2-p1;                         % Difference
+    quiver(p1(1),p1(2),1.00*dp(1),dp(2),0.0, 'Color', [0.7, 0.7, 0.9], 'LineWidth',2)
+end
+for i=1:size(one_ways_W,1)
+    p1 = [one_ways_W(i,4) (one_ways_W(i,1)+one_ways_W(i,3))/2];                         % First Point
+    p2 = [one_ways_W(i,2) (one_ways_W(i,1)+one_ways_W(i,3))/2];                         % Second Point
+    dp = p2-p1;                         % Difference
+    quiver(p1(1),p1(2),1.00*dp(1),dp(2),0.0, 'Color', [0.7, 0.7, 0.9], 'LineWidth',2)
+end
+
 axis equal
 %axis([bounds(2) bounds(4) -bounds(3) -bounds(1)])
 axis([bounds(2)-0.2 bounds(4)+0.2 bounds(1)-0.2 bounds(3)+0.2])

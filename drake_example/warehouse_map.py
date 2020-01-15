@@ -1,3 +1,7 @@
+#!/usr/bin/env python
+
+#from __future__ import print_function
+
 import numpy as np
 import matplotlib.pyplot as plt
 import math
@@ -12,18 +16,21 @@ import json
 from itertools import combinations
 from timeit import default_timer as timer
 import argparse
+from tqdm import tqdm
 
 import networkx as nx
 
 from numpy import linalg as LA
-from shapely.geometry import Polygon, box
+from shapely.geometry import Polygon, box, Point
 #from mayavi import mlab
 
 from StructuredSlugsParser import compiler as slugscomp
 
+MAP_KIND = 'lab' # 'raymond'
 # I commented this because it causes loading DubinsPlantCar which tries to load pydrake which is unavailable in the lab computer
 #from DubinsPlantCar import CELL_SIZE
 CELL_SIZE = 0.25 #[m]
+#CELL_SIZE = 1.25 #[m]
 
 import GeometryFunctions as gf
 import ROSUtilities as RU
@@ -72,7 +79,7 @@ def GetRotmat(orient):
 	return rotmat
 
 # add connections between grid points using motion primitives if they do not collide with any obstacle
-def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, map_kind, cell_h=1.25, cell_w=1.25, force=False):
+def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_kind, cell_h=1.25, cell_w=1.25, force=False):
 	global W_Width
 	global W_xgrid
 	global W_ygrid
@@ -130,44 +137,47 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, map_kind, cell
 	total_count = 0
 	G = nx.DiGraph(name='ConnectivityGraph')
 	for orient in range(4): #corresponds to (E, N, W, S)
-		# rotate the motion primitives according to initial position
-		rotmat = GetRotmat(orient)
+		print('Computing transition map for orientation (%d/4):' %(orient+1))
+		with tqdm(total=nX*nY) as pbar:
+			# rotate the motion primitives according to initial position
+			rotmat = GetRotmat(orient)
+			#import pdb; pdb.set_trace()
+			for i, x in enumerate(X):
+				for j, y in enumerate(Y):
+					for key, mp in MotionPrimitives.items():
+						#import pdb; pdb.set_trace()
+						connect2  = np.array([[ mp['e'][0]-mp['s'][0] ], \
+											  [ mp['e'][1]-mp['s'][1] ]])
+						# rotate to global coordinate system
+						connect2  = rotmat.dot( connect2 ) 
+						toLoc     = np.array([[x], [y]]) + connect2
 
-		#import pdb; pdb.set_trace()
-		for i, x in enumerate(X):
-			for j, y in enumerate(Y):
-				for key, mp in MotionPrimitives.items():
-					#import pdb; pdb.set_trace()
-					connect2  = np.array([[ mp['e'][0]-mp['s'][0] ], \
-								          [ mp['e'][1]-mp['s'][1] ]])
-					# rotate to global coordinate system
-					connect2  = rotmat.dot( connect2 ) 
-					toLoc     = np.array([[x], [y]]) + connect2
+						toRot     = (mp['e'][2]-mp['s'][2]) / (90.0*math.pi/180.0)
+						toRot     = (orient+toRot)%4
+						connect2  = connect2/cell
 
-					#if(int(orient) == 1 and i==12 and j==6):
-					#	import pdb; pdb.set_trace()
+						# check if the funnel is not oriented with the one way direction
+						if(IsOneWayCompliant(x, y, orient, int(toRot), one_ways)):
+							# check if funnel is in bounds and does not collide with any obstacle
+							if(IsPathFree(mp, merged_obs_list, rotmat, orient, x, y, toLoc[0], toLoc[1], \
+										  X[0], X[-1], Y[0], Y[-1], ax )):
+								# add some weighting based on the fact that you should prefer longer
+								# primitives (motion 0 will be better than 4 times motion 2) and
+								# turning around would be more expensive than going straight (motion 7-8 vs. motion 0).
+								# when constructing the library, the key is ranked with ascending difficulty
+								difficulty_factor = 1.0  + key/20.0 #just a factor
+								if(key>6):
+									difficulty_factor = difficulty_factor*5
 
-					# check if funnel is in bounds and does not collide with any obstacle
-					if(IsPathFree(mp, merged_obs_list, rotmat, orient, x, y, toLoc[0], toLoc[1], \
-								  X[0], X[-1], Y[0], Y[-1], ax )):
-						toRot    = (mp['e'][2]-mp['s'][2]) / (90.0*math.pi/180.0)
-						toRot    = (orient+toRot)%4
-						connect2 = connect2/cell
-						# add some weighting based on the fact that you should prefer longer
-						# primitives (motion 0 will be better than 4 times motion 2) and
-						# turning around would be more expensive than going straight (motion 7-8 vs. motion 0).
-						# when constructing the library, the key is ranked with ascending difficulty
-						difficulty_factor = 1.0  + key/20.0 #just a factor
-						if(key>6):
-							difficulty_factor = difficulty_factor*5
-													
-						G.add_edge( 'H' + str(int(orient)) + 'X' + str(i) + 'Y' + str(j), \
-								    'H' + str(int(toRot)) + 'X' + str(i+int(connect2[0][0])) + 'Y' + str(j+int(connect2[1][0])), \
-								    weight=LA.norm(connect2)*difficulty_factor, motion=key, index=total_count )
-						total_count += 1
+								G.add_edge( 'H' + str(int(orient)) + 'X' + str(i) + 'Y' + str(j), \
+											'H' + str(int(toRot)) + 'X' + str(i+int(connect2[0][0])) + \
+											'Y' + str(j+int(connect2[1][0])), \
+											weight=LA.norm(connect2)*difficulty_factor, motion=key, index=total_count )
+								total_count += 1
+				pbar.update(nY)
 		plt.pause(0.05)
-		print('Done computing transition map for orientation (%d/4).' %(orient+1))
-	
+		print(' ')
+		
 	print(nx.info(G))
 	# save time for next time
 	SaveGraphToFile(G, map_kind)
@@ -229,6 +239,23 @@ def IsPathFree(mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, 
 			
 	return True
 
+def IsOneWayCompliant(x, y, orient, toRot, one_ways):
+	#import pdb; pdb.set_trace()
+	pnt = Point(x, y)
+	for key, regions in enumerate(one_ways):
+		for idx, region in enumerate(regions):
+			if(region.contains(pnt)):
+				if(orient != key):
+					#print('x=%f\ty=%f in one-way %d' %(x,y,idx))
+					# or (toRot != key)
+					# not starting with right orientation or not ending with one.
+					# currently I'm not using the not ending with one because we
+					# might loose funnels the are exiting the one-way isle. on the
+					# other hand, inside the isle, those funnels will lead to nowhere else
+					# so we're ok.
+					return False
+	return True
+
 # this will be loading coordinates of a map from a file in the future
 def ReplicateMap(map_kind = 'none'):
 	global W_Height
@@ -244,25 +271,41 @@ def ReplicateMap(map_kind = 'none'):
 	workspace = box(*spec['workspace'])
 	obstacles = spec["obstacles"]
 	no_entrance = spec["no_entrance"]
+	one_way = spec["one_way"]
 	obs = []
 	no_enter = []
+	one_ways = [[], [], [], [] ]
+	
 	for val in obstacles.values():
 		if(len(val)>0):
 			obs.append(box(*val))
 	for val in no_entrance.values():
 		if(len(val)>0):
 			no_enter.append(box(*val))
-
+	for key, val in one_way.items():
+		if(len(val)>0):
+			if(key[0] == 'N'):
+				numeric_key = 2
+			elif(key[0] == 'E'):
+				numeric_key = 1
+			elif(key[0] == 'W'):
+				numeric_key = 3
+			else: 
+				#key[0] == 'S'
+				numeric_key = 0
+				
+			one_ways[numeric_key].append(box(*val))
+	
 	W_Height = workspace.bounds[2] - workspace.bounds[0]  # [m]
 	W_Width  = workspace.bounds[3] - workspace.bounds[1] # [m]
 		
 	pix2m  = W_Width/(workspace.bounds[3]-workspace.bounds[1])
-	import pdb; pdb.set_trace()
+	#import pdb; pdb.set_trace()
 	
 	toc = timer()
 	print('Loading map took %f[sec]' %(toc-tic))
 	
-	return workspace, obs, no_enter
+	return workspace, obs, no_enter, one_ways
 
 def GetGoals(map_kind = 'none'):
 	global pix2m
@@ -299,12 +342,13 @@ def GetGoals(map_kind = 'none'):
 	return goals
 	'''
 
-def MapToFile(map_kind, workspace, obstacles, goals, no_enter, scale):
+def MapToFile(map_kind, workspace, obstacles, goals, no_enter, one_ways, scale):
 	data = {}
 	data['workspace'] = []
 	data['obstacles'] = []
 	#data['goals'] = []
 	data['no_enter'] = []
+	data['one_ways'] = []
 	
 	bounds = list(workspace.bounds)
 	data['workspace'].append({
@@ -340,6 +384,17 @@ def MapToFile(map_kind, workspace, obstacles, goals, no_enter, scale):
 			'X': bounds[2]*pix2m,
 			'Y': bounds[3]*pix2m
 		})
+	
+	for key, regions in enumerate(one_ways):
+		for idx, region in enumerate(regions):
+			bounds = list(region.bounds)
+			data['one_ways'].append({
+				'x': bounds[0]*pix2m,
+				'y': bounds[1]*pix2m,
+				'X': bounds[2]*pix2m,
+				'Y': bounds[3]*pix2m,
+				'D': key
+			})
 	data['cell'] = CELL_SIZE
 	
 	with open(map_kind + '.map', 'w') as outfile:
@@ -629,11 +684,10 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 				f.write('R%d=%d\n' %(r, map_label_2_bit[start_label['r%d' %r][0]] )) # existence of any robot in funnel/region
 			f.write('\n')
 
-			f.write('[SYS_TRANS]\n\n')
 			f.write('[ENV_TRANS]\n')
-			# this is the robot which the policy is about
 			all_mps = Set(np.arange(0, len(MP)))
 			list_of_formulas = []
+			list_of_mp_constraints = []
 			# first, add all theoretically available motions to the environment transitions
 			for parent in G:
 				# add functionality to stay in place (added first with the hope of choosing this rather than some
@@ -646,10 +700,6 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 				avail_links = Set([])
 				list_of_avail_funnels = []
 				for child in children:
-					#grandchild = G.neighbors(child) 
-					#if(grandchild.__length_hint__()>0):
-						# if it has no grandchild then it was probably removed earlier
-						# and it is not even available in the dictionary
 					mp_num = G[parent][child]['motion']
 					avail_links.update([mp_num])
 
@@ -668,19 +718,14 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 						#					map_label_2_bit[parent] ))
 						list_of_avail_funnels.append(map_label_2_bit[child])
 						#import pdb; pdb.set_trace()
-						if(other_robots.shape[0] > 0):
-							for r in other_robots:
-								f.write('(R=%d & !(R%d=%d) & mp=%d)->(R\'=%d)\n' %(\
-													map_label_2_bit[parent], \
-													r, map_label_2_bit[child], \
-													mp_num, \
-													map_label_2_bit[child] )) #this is allowed
-						else:
-							f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(\
+						f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(\
 											map_label_2_bit[parent], \
 											mp_num, \
 											map_label_2_bit[child] )) #this is allowed
-							
+						for r in other_robots:
+							list_of_mp_constraints.append('(R=%d & !(R%d=%d))->!(mp\'=%d)\n' %(map_label_2_bit[parent], \
+																							   r, map_label_2_bit[child], mp_num))
+						
 					else:
 						# intersects a no entry zone. can add reactivity right here.
 						# for now, it's a global avoid this region (as if we would've treated it as an obstacle)
@@ -688,6 +733,7 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 						f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \
 															   mp_num, \
 															   map_label_2_bit[parent] ))
+						list_of_mp_constraints.append('(R=%d)->!(mp\'=%d)\n' %(map_label_2_bit[parent], mp_num))
 
 				# store the available formula for this funnel for the other robots
 				formula_str = '(X=%d)->(' %map_label_2_bit[parent]
@@ -703,15 +749,21 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 					f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \
 													   links_not_provided.pop(), \
 													   map_label_2_bit[parent] ))
-			f.write('\n')
-
-			######f.write('[ENV_TRANS]\n')
+					#list_of_mp_constraints.append('(R=%d)->!(mp\'=%d)\n' %(map_label_2_bit[parent], \
+					#								   links_not_provided.pop()))
 			# this is for the other robots, how can they move but we don't worry ourselves with their exact
 			# policies, only that they cannot hit static obstacles nor the main robot
+			f.write('\n')
 			for r in other_robots:
 				res = [sub.replace('X', 'R%d'%r) for sub in list_of_formulas]
 				f.writelines(res)
 			f.write('\n')
+			
+			f.write('[SYS_TRANS]\n')
+			# this is the robot which the policy is about
+			#f.writelines(list_of_mp_constraints)
+			f.write('\n')
+
 
 		
 	print('done.')
@@ -736,189 +788,6 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 	print('Creating structuredslugs & converting to slugsin file took %f[sec]' %(toc-tic))
 	#import pdb; pdb.set_trace()
 	return map_label_2_bit
-
-# generates the specification file for slugs (centrelized) - WORK WAS NOT COMPLETE. NOT WORKING!!
-'''
-def GetNodeOfRobot(lbl_map, label, robot_i, robot_num):
-	lbl_index = lbl_map[ label ]
-	mult = int(np.ceil(np.log2(robot_num)))
-	
-	return np.left_shift(lbl_index,mult)+robot_i
-
-def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funnel'):
-	global W_xgrid
-	global W_ygrid
-	
-	tic = timer()
-	
-	Nnodes = nx.number_of_nodes(G)
-	Nedges = nx.number_of_edges(G)
-	
-	start_label = {}
-	finish_label = {}
-	
-	print('Creating the structured slugs file ...')
-	
-	robots_num = len(goals)
-	mult = int(np.ceil(np.log2(robots_num)))
-	
-	for r in range(robots_num):
-		goals_r = np.array(goals[r])
-		N, __ = goals_r.shape
-		#print('Start at: %s' %(GetNodeLabel(goals[0, :])))
-		start_label['r%d' %r] = []
-		finish_label['r%d' %r] = []
-		for i in range(N):
-			start = goals_r[i, :]
-			if(i == N-1):
-				finish = goals_r[0, :] # complete the cycle
-			else:
-				finish = goals_r[i+1, :]
-			start_label['r%d' %r].append(GetNodeLabel(start))
-			finish_label['r%d' %r].append(GetNodeLabel(finish))
-			#print('Then go to: %s' %(finish_label[-1]))
-	
-	map_label_2_bit = {}
-	node_count = 0
-	for node in G:
-		map_label_2_bit.update({node: node_count})
-		node_count += 1
-		## this was an attempt to not include nodes that don't have children (dead-ends)
-		## but it needs to be handled with care. doesn't work at the moment
-		#children = G.neighbors(node) #list of successor nodes of parent
-		#if(children.__length_hint__()>0):
-		#	map_label_2_bit.update({node: node_count})
-		#	node_count = node_count + 1
-		#else:
-		#	#this node is a dead-end so we might as well just not include it
-		#	pass
-	#import pdb; pdb.set_trace()	
-	with open(filename + '.structuredslugs', 'w') as f: 	
-		# structured slugs
-		f.write('[INPUT]\n') 
-		f.write('R:0...%d\n' %( node_count*robots_num ) ) # existence of robot i in funnel/region j
-		f.write('\n')
-		
-		f.write('[OUTPUT]\n')
-		# every mp is an action, +1 (remember it's zero based so no actual addition) for the action 'stay in place'
-		total_actions    = len(MP) 
-		mp_stay_in_place = total_actions
-		f.write('mp:0...%d\n' %( total_actions*robots_num )) # action mp of robot i 
-		f.write('\n')
-				
-		f.write('[ENV_LIVENESS]\n')
-		f.write('\n')
-		
-		f.write('[SYS_LIVENESS]\n')
-		# all the points we want to reach (goals)
-		for r in range(robots_num):
-			for g in start_label['r%d' %r]:
-				f.write('R=%d\n' %( GetNodeOfRobot(map_label_2_bit, g, r, robots_num) ))
-		f.write('\n')
-		
-		f.write('[SYS_INIT]\n') 
-		f.write('\n')
-		
-		f.write('[ENV_INIT]\n')
-		for r in range(robots_num):
-			# need to change this, either to have no specific start point, or, start at the current location,
-			# or have some mechanism to get from current location to start position
-			f.write('R=%d\n' %( GetNodeOfRobot(map_label_2_bit, start_label['r%d' %r][0], r, robots_num) )) 
-		f.write('\n')
-		
-		f.write('[SYS_TRANS]\n')
-		f.write('\n')
-		
-		f.write('[ENV_TRANS]\n')
-		all_mps = Set(np.arange(0, len(MP)))
-		
-		# first, add all theoretically available motions to the environment transitions
-		for parent in G:
-			# add functionality to stay in place (added first with the hope of choosing this rather than some
-			# other mp which leads to nowhere when in conflict with another robot
-			for r in range(robots_num):
-				f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(GetNodeOfRobot(map_label_2_bit, parent, r, robots_num), \
-													   np.left_shift(mp_stay_in_place,mult) + r, \
-													   GetNodeOfRobot(map_label_2_bit, parent, r, robots_num)))
-
-			children = G.neighbors(parent) #list of successor nodes of parent
-			for r in range(robots_num):
-				avail_links = Set([])
-				for child in children:
-					#grandchild = G.neighbors(child) 
-					#if(grandchild.__length_hint__()>0):
-						# if it has no grandchild then it was probably removed earlier
-						# and it is not even available in the dictionary
-					mp_num = G[parent][child]['motion']
-					avail_links.update([mp_num])
-
-					# all the points we wish to avoid (do not enter zones)
-					orient, xs, ys = [int(s) for s in re.findall(r'-?\d+\.?\d*', parent)] # extract ellipse pose
-					#if(map_label_2_bit[parent] == 1290): #'H1X12Y6'
-					#	import pdb; pdb.set_trace()
-					out_of_no_enter = IsPathFree(MP[mp_num], no_enter, GetRotmat(orient), orient, W_xgrid[xs], W_ygrid[ys], 0, 0, \
-									  -10e6, 10e6, -10e6, 10e6, 0 ) #the last 7 parameters don't really matter here
-					if(out_of_no_enter):
-						# good, does not intersect the no entry zones. need to check if other robots do not interfere
-						occupied_funnel_str = '(' 
-						for other_r in range(robots_num):
-							if(r == other_r):
-								# this is not possible that a robot is in funnel x and y
-								pass
-							else:
-								occupied_funnel_str = occupied_funnel_str + \
-									('R=%d | ' %(GetNodeOfRobot(map_label_2_bit, parent, other_r, robots_num)))
-						occupied_funnel_str = occupied_funnel_str.rstrip('| ') + ')'
-							
-						f.write('(R=%d & %s & mp=%d)->(R\'=%d)\n' %(\
-											GetNodeOfRobot(map_label_2_bit, parent, r, robots_num), \
-											occupied_funnel_str, \
-											mp_num*mult + r, \
-											GetNodeOfRobot(map_label_2_bit, parent, r, robots_num)))
-						f.write('(R=%d & !%s & mp=%d)->(R\'=%d)\n' %(\
-											GetNodeOfRobot(map_label_2_bit, parent, r, robots_num), \
-											occupied_funnel_str, \
-											mp_num*mult + r, \
-											GetNodeOfRobot(map_label_2_bit, child, r, robots_num)))
-
-					else:
-						# intersects a no entry zone. can add reactivity right here.
-						# for now, it's a global avoid this region (as if we would've treated it as an obstacle)
-						# the # is just so I could recognize where it happens in the file
-						f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(GetNodeOfRobot(map_label_2_bit, parent, r, robots_num), \
-															   mp_num*mult+r, \
-															   GetNodeOfRobot(map_label_2_bit, parent, r, robots_num)))
-			
-			links_not_provided = all_mps - avail_links
-			while(len(links_not_provided)>0):
-				f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(GetNodeOfRobot(map_label_2_bit, parent, r, robots_num), \
-												   links_not_provided.pop()*mult + r, \
-												   GetNodeOfRobot(map_label_2_bit, parent, r, robots_num)))
-		f.write('\n')
-						
-		
-	print('done.')
-	#import pdb; pdb.set_trace()
-	print('Converting to slugsin ...')
-	try:
-		resource.setrlimit(resource.RLIMIT_STACK, (2**29,-1))
-	except ValueError:
-		pass # Cannot increase limit
-	sys.setrecursionlimit(10**6)
-	sys.stdout = open(filename + '.slugsin', "w") # the compiler function is just printing on screen
-	slugscomp.performConversion(filename + '.structuredslugs', False)
-	sys.stdout = sys.__stdout__  # convert back to printing on screen
-	print('done.')
-	
-	dbfile = open(filename + '.label2bit', 'wb')
-	dill.dump(map_label_2_bit, dbfile)
-	dbfile.close()
-	
-	toc = timer()
-	print('Creating structuredslugs & converting to slugsin file took %f[sec]' %(toc-tic))
-	
-	return map_label_2_bit
-'''
 
 # get a complete synthesized controller for our spec.
 def SynthesizeController(robots_num, filename='map_funnel'):
@@ -956,7 +825,7 @@ def SynthesizeController(robots_num, filename='map_funnel'):
 	return controllers
 
 # decipher the sequence of moves to satisfy spec.
-def GetSpecificControl(Controllers, map_bit_2_label, debug=True):
+def GetSpecificControl(Controllers, map_bit_2_label, filename='map_funnel', debug=True):
 	tic = timer()
 	
 	trans = 0
@@ -1035,7 +904,7 @@ def GetSpecificControl(Controllers, map_bit_2_label, debug=True):
 	jsonList = []
 	for i in range(len(states)):
 		jsonList.append({"state" : states[i], "action" : mps[i]})
-	with open('lab.states', 'wt') as f:
+	with open(filename + '.states', 'wt') as f:
 		json.dump(jsonList, f)
 		
 	return states, mps
@@ -1047,6 +916,7 @@ def SaveGraphToFile(G, filename):
 def LoadGraphFromFile(filename):
 	return nx.read_gpickle(filename + '.pickle')
 
+		
 # not currently in use
 def plot_ellipse(ax, A, x0, orient):
 	vertices = 51
@@ -1095,18 +965,17 @@ if __name__ == "__main__":
 		else:
 			force = False
 	
-	map_kind = 'lab' 
-	#map_kind = 'raymond'
+	map_kind = MAP_KIND 
 	
 	MP = LoadMP(fName='MPLibrary.lib')
 	MotionPrimitivesToFile(map_kind, MP)
 	
-	workspace, obs, no_enter = ReplicateMap(map_kind=map_kind) #
+	workspace, obs, no_enter, one_ways = ReplicateMap(map_kind=map_kind) #
 	goals, robots_num = GetGoals(map_kind=map_kind)
 	# save it to file
-	MapToFile(map_kind.lower(), workspace, obs, goals, no_enter, pix2m)
+	MapToFile(map_kind.lower(), workspace, obs, goals, no_enter, one_ways, pix2m)
 	
-	DiGraph, ax = PopulateMapWithMP(MP, workspace, obs, no_enter, map_kind, cell_h=cell, cell_w=cell, force=force)
+	DiGraph, ax = PopulateMapWithMP(MP, workspace, obs, no_enter, one_ways, map_kind, cell_h=cell, cell_w=cell, force=force)
 	
 	print('Searching for naive paths (disregarding no-entry zones) using graph search ...')
 	for i in range(robots_num):
@@ -1126,7 +995,7 @@ if __name__ == "__main__":
 	map_bit_2_label = dict((v, k) for k, v in map_label_2_bit.items())
 	
 	synctrl = SynthesizeController(robots_num, filename=map_kind) #'map_funnel')
-	GetSpecificControl(synctrl, map_bit_2_label)
+	GetSpecificControl(synctrl, map_bit_2_label, filename=map_kind)
 	print('Done. Close figure to exit.')
 	plt.show(block=True)
 	

@@ -36,15 +36,15 @@ from tf2_geometry_msgs import do_transform_vector3
 ROBOT_TYPE = 'JACKAL'  # original JACKAL run with 'roslaunch jackal_gazebo jackal_world.launch'
 #ROBOT_TYPE = 'TURTLEBOT'
 
-MAP = 'lab'
+MAP = 'raymond'
 MAP_FILE = MAP + '.map'
-SYNTH_AUTOMATA_FILE = MAP + '.json'
+SYNTH_AUTOMATA_FILE = MAP
 MP_MAP_FILE = MAP + '.pickle'
 LABEL2BIT_FILE = MAP + '.label2bit'
 pix2m  = 1.0 #0.2 #[m]
 ft2m   = 0.3048
-umax   = 0.5 #1.0  # jackal m/sec     5.0
-delmax = 45.0*np.pi/180.0  # jackal rad   30.0 80
+umax   = 1.0 #1.0  # jackal m/sec     5.0
+delmax = 80.0*np.pi/180.0  # jackal rad   30.0 80
 logger = None
 CALIB_ANGLE_THETA = 0.0 #I've changed the angle in the optitrack software-0.16 #[rad]
 
@@ -82,6 +82,10 @@ class Jackal:
 		self.W_ygrid = np.arange(bounds[1]+cell/2.0, bounds[3]-cell/2.0, cell)
 
 		# load the slugs solution
+		if(SIMULATION == False):
+			idx -= 1 #this is because in the lab the index is +1
+			
+		aut_file = aut_file + ('_r%d' %idx) + '.json'
 		aut = open(aut_file, 'r')
 		self.automata = json.load(aut)
 		aut.close()
