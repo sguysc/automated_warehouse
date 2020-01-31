@@ -7,10 +7,14 @@ import argparse
 import dill
 import networkx as nx
 import re
+import sys
 import logging # can't handle the ros logging :(
 from time import localtime, strftime
+from timeit import default_timer as timer
 
+# my stuff
 from warehouse_map import LoadMP, GetSpecificControl, find_nearest, GetRotmat, FL_L
+from SlugsInterface import *
 
 # lab or simulation
 SIMULATION = True
@@ -36,7 +40,9 @@ from tf2_geometry_msgs import do_transform_vector3
 ROBOT_TYPE = 'JACKAL'  # original JACKAL run with 'roslaunch jackal_gazebo jackal_world.launch'
 #ROBOT_TYPE = 'TURTLEBOT'
 
-MAP = 'raymond'
+SLUGS_DIR = '/home/cornell/Tools/slugs_ltl_stack/src/slugs'
+#MAP = 'raymond'
+MAP = 'lab'
 MAP_FILE = MAP + '.map'
 SYNTH_AUTOMATA_FILE = MAP
 MP_MAP_FILE = MAP + '.pickle'
@@ -84,11 +90,25 @@ class Jackal:
 		# load the slugs solution
 		if(SIMULATION == False):
 			idx -= 1 #this is because in the lab the index is +1
-			
-		aut_file = aut_file + ('_r%d' %idx) + '.json'
-		aut = open(aut_file, 'r')
-		self.automata = json.load(aut)
-		aut.close()
+		
+		# old, interface with the explicitStrategy of slugs
+		#aut_file = aut_file + ('_r%d' %idx) + '.json'
+		#aut = open(aut_file, 'r')
+		#self.automata = json.load(aut)
+		#aut.close()
+		# new, interface the interactive mode of slugs
+		tic = timer()
+		self.slugs = SlugsInterface(aut_file + ('_r%d' %idx), slugsLink = SLUGS_DIR)
+		toc = timer()
+		if(not self.slugs.enabled):
+			print('Cannot create slugs interface.')
+			return
+		print('Done loading slugs (%.2f[sec]).' %(toc-tic))
+		self.slugs.DiscoverInputs()
+		self.slugs.DiscoverOutputs()
+		self.slugs.GetInitialPos()
+		self.funnel_sensors = dict(zip(range(self.slugs._Nsens), [False]*self.slugs._Nsens))
+
 		self.G = nx.read_gpickle(mp_file)
 		self.mps = LoadMP()
 
@@ -96,25 +116,36 @@ class Jackal:
 		self.map_label_2_bit = dill.load(dbfile)
 		dbfile.close()
 
-		# the reverse dictionary is useful
+		# the reverse dictionary is also useful
 		self.map_bit_2_label = dict((v, k) for k, v in self.map_label_2_bit.items())
-		self.states, self.actions = GetSpecificControl(self.automata, self.map_bit_2_label, debug=False)
+		#self.states, self.actions = GetSpecificControl(self.automata, self.map_bit_2_label, debug=False)
+		self.curr_state, self.action = self.slugs.GetNumericState()
+		# now, get the new next state
+		if(self.action == 9):
+			print('oh no, R%d starts with action stay in place' %(self.idx))
+			self.next_state =  self.curr_state
+			self.do_calc = False
+		else:
+			for key, val in self.G[self.map_bit_2_label[self.curr_state]].items():
+				if( val['motion'] == self.action):
+					self.next_state = self.map_label_2_bit[key]
+					break
+		self.next_state, self.next_action = \
+			self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
 
-		for state in self.states:
-			print('R%d (%s)' %(self.map_label_2_bit[state],state))
+		print('R%d starts in region %s (%d)' %(idx, self.map_bit_2_label[self.curr_state],self.curr_state))
 
-		self.curr_state = 0
-		self.N_state  = len(self.states)
-		self.N_ellipse = len(self.mps[ self.actions[self.curr_state] ]['V'])
-		self.curr_ell = self.FindNextValidEllipse()
-		self.K     = self.mps[self.actions[self.curr_state] ]['K'][self.curr_ell]
-		self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.actions[self.curr_state] ]['xcenter'][self.curr_ell], \
-										self.states[self.curr_state])
-		self.x_ref_hires = self.mps[self.actions[self.curr_state] ]['xtraj']
+		#self.N_state  = len(self.states)
+		self.N_ellipse = len(self.mps[self.action]['V'])
+		self.curr_ell  = self.FindNextValidEllipse()
+		self.K         = self.mps[self.action]['K'][self.curr_ell]
+		self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][self.curr_ell], \
+										self.map_bit_2_label[self.curr_state])
+		self.x_ref_hires = self.mps[self.action]['xtraj']
 		#import pdb; pdb.set_trace()
-		self.u_ref = self.mps[self.actions[self.curr_state] ]['unom'][self.curr_ell]
-		self.u_ref_hires = self.mps[self.actions[self.curr_state] ]['utraj']
-
+		self.u_ref = self.mps[self.action]['unom'][self.curr_ell]
+		self.u_ref_hires = self.mps[self.action]['utraj']
+	
 		#import pdb; pdb.set_trace()
 		# handle the ROS topics
 		if(SIMULATION):
@@ -137,7 +168,7 @@ class Jackal:
 			self.sensors3_sub = rospy.Subscriber("/jackal_velocity_controller/odom", Odometry, self.odom_cb)
 
 		if(False):
-			self.xinterp, self.uinterp = self.GetClosestInterpPoint(self.x_ref_hires, self.states[self.curr_state])
+			self.xinterp, self.uinterp = self.GetClosestInterpPoint(self.x_ref_hires, self.map_bit_2_label[self.curr_state])
 		else:
 			self.xinterp = self.x_ref
 			self.uinterp = self.u_ref
@@ -208,7 +239,7 @@ class Jackal:
 			# do control and call the robot (you first execute the control for the given ellipse you're in,
 			# only then, you see if you're at a new funnel/knot point and switch controls)
 			if(True):
-				self.xinterp, self.uinterp = self.GetClosestInterpPoint(self.x_ref_hires, self.states[self.curr_state])
+				self.xinterp, self.uinterp = self.GetClosestInterpPoint(self.x_ref_hires, self.map_bit_2_label[self.curr_state])
 			else:
 				self.xinterp = self.x_ref
 				self.uinterp = self.u_ref
@@ -219,7 +250,7 @@ class Jackal:
 			#	self.control(self.K*0.0, self.xinterp, 0.0*self.uinterp, do_calc=self.do_calc)
 			#else:
 			self.control(self.K, self.xinterp, self.uinterp, do_calc=self.do_calc)
-			self.do_calc = False
+			#self.do_calc = True
 
 			# check if we're in the next ellipse on the same funnel
 			if(self.curr_ell < self.N_ellipse - 1):
@@ -228,12 +259,12 @@ class Jackal:
 				# that it is in
 				next_ell = self.N_ellipse - 1
 				while( next_ell > self.curr_ell ):
-					if(self.CheckEllipseCompletion(self.states[self.curr_state], \
-												   self.actions[self.curr_state], next_ell) == True):
-						self.K     = self.mps[self.actions[self.curr_state] ]['K'][next_ell]
-						self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.actions[self.curr_state] ]['xcenter'][next_ell], \
-													self.states[self.curr_state])
-						self.u_ref = self.mps[self.actions[self.curr_state] ]['unom'][next_ell]
+					if(self.CheckEllipseCompletion(self.map_bit_2_label[self.curr_state], \
+												   self.action, next_ell) == True):
+						self.K     = self.mps[self.action]['K'][next_ell]
+						self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][next_ell], \
+													self.map_bit_2_label[self.curr_state])
+						self.u_ref = self.mps[self.action]['unom'][next_ell]
 						# this doesn't change when we go through another ellipse
 						#self.x_ref_hires = self.mps[ self.actions[self.curr_state] ]['xtraj']
 						#self.u_ref_hires = self.mps[ self.actions[self.curr_state] ]['utraj']
@@ -245,26 +276,42 @@ class Jackal:
 
 			#import pdb; pdb.set_trace()
 			# check if we're in the next funnel (and overflow when in the final one)
-			next_state = (self.curr_state + 1) if (self.curr_state < self.N_state - 1) else 0
-			if (self.CheckFunnelCompletion(self.states[next_state], self.actions[next_state]) == True):
-				rospy.loginfo('reached funnel %d (%s)' %(next_state, self.states[next_state]))
+			if(self.next_action == 9):
+				self.next_state, self.next_action = \
+					self.slugs.FindNextStep(self.curr_state, self.funnel_sensors)
+				if(self.next_action != 9):
+					self.do_calc = True
+					print('R%d can move again ...' %self.idx)
+			elif (self.CheckFunnelCompletion(self.map_bit_2_label[self.next_state], self.next_action) == True):
+				rospy.loginfo('R%d reached funnel %d (%s)' %(self.idx, self.next_state, self.map_bit_2_label[self.next_state]))
 				#we've reached the beginning of a new funnel, so update the states
-				self.curr_state = next_state
+				self.slugs.MoveNextStep()
+				self.curr_state = self.next_state
 				# sometimes the first ellipse has zero speed and it causes trouble. skip ellipses ahead
 				# it's fine because if it doesn't have controls, then it is also at the same place as first ellipse.
 				# this is usually only one ellipse. Maybe should take care of it when creating the funnels or
 				self.curr_ell = self.FindNextValidEllipse()
+				self.action = self.next_action
 				# get how many points are in this new motion primitive
-				self.N_ellipse = len(self.mps[ self.actions[self.curr_state] ]['V'])
+				self.N_ellipse = len(self.mps[ self.action]['V'])
 				# update all the new motion parameters
-				self.K     = self.mps[self.actions[self.curr_state] ]['K'][self.curr_ell]
-				self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.actions[self.curr_state] ]['xcenter'][self.curr_ell], \
-											self.states[self.curr_state])
-				self.u_ref = self.mps[self.actions[self.curr_state] ]['unom'][self.curr_ell]
-				self.x_ref_hires = self.mps[ self.actions[self.curr_state] ]['xtraj']
-				self.u_ref_hires = self.mps[ self.actions[self.curr_state] ]['utraj']
-				self.do_calc = True
+				self.K     = self.mps[self.action]['K'][self.curr_ell]
+				self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][self.curr_ell], \
+											self.map_bit_2_label[self.curr_state])
+				self.u_ref = self.mps[self.action]['unom'][self.curr_ell]
+				self.x_ref_hires = self.mps[ self.action]['xtraj']
+				self.u_ref_hires = self.mps[ self.action]['utraj']
 				self.timer = self.msg_num
+				# now, get the new next state
+				for key, val in self.G[self.map_bit_2_label[self.curr_state]].items():
+					if( val['motion'] == self.action):
+						self.next_state = self.map_label_2_bit[key]
+						break
+				self.next_state, self.next_action = \
+					self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
+				if(self.next_action==9):
+					self.do_calc = False
+					print('oh oh, R%d got \'stay in place\' action (9)' %self.idx)
 
 			# output the telemetry to file
 			#print(':%d' %(self.msg_num))
@@ -282,7 +329,7 @@ class Jackal:
 					 '%.2f;%.2f;%.2f;%.2f;%.2f' \
 					   %(t, self.msg_num, self.pose[0], self.pose[1], self.pose[2]*180.0/np.pi, \
 						 self.x_ref[0], self.x_ref[1], self.x_ref[2]*180.0/np.pi, self.u_ref[0], self.u_ref[1], \
-						self.curr_state, self.curr_ell, int(self.do_calc), self.actions[self.curr_state], \
+						self.curr_state, self.curr_ell, int(self.do_calc), self.action, \
 						self.u[0], self.u[1], self.linvel.x, self.linvel.y, self.linvel.z,\
 						self.rotvel.x, self.rotvel.y, self.rotvel.z, self.xinterp[0],self.xinterp[1],self.xinterp[2]*180.0/np.pi, \
 						self.uinterp[0],self.uinterp[1]))
@@ -352,7 +399,7 @@ class Jackal:
 	def FindNextValidEllipse(self):
 		find_non_zero = 0
 		while True:
-			if(np.linalg.norm(self.mps[self.actions[self.curr_state]]['unom'][find_non_zero]) < 0.01):
+			if(np.linalg.norm(self.mps[self.action]['unom'][find_non_zero]) < 0.01):
 				find_non_zero += 1
 				if(find_non_zero == self.N_ellipse):
 					break
@@ -469,10 +516,10 @@ class Jackal:
 		if(self.all_topics_loaded == False):
 			return
 
-		if(True): #do_calc == True):
+		if(do_calc == True):
 			# error comes in global coordinates while the K computed in the optimization
 			# assumes y-up x-right and we face right
-			label = self.states[self.curr_state]
+			label = self.map_bit_2_label[self.curr_state]
 			orient, __, __ = [int(s) for s in re.findall(r'-?\d+\.?\d*', label)] # extract first ellipse pose
 			rotmat = GetRotmat(orient)
 			rotmat = np.linalg.inv(rotmat)
@@ -506,8 +553,8 @@ class Jackal:
 
 			self.u = u
 
-		#else:
-		#	u = self.u
+		else:
+			u = self.u*0.0  #stay in place
 
 		self.actuation(u)
 
@@ -539,7 +586,7 @@ class Jackal:
 
 if __name__ == '__main__':
 	parser = argparse.ArgumentParser(description='Robot number to control.')
-	parser.add_argument('--n', type=int, default=1,
+	parser.add_argument('--n', type=int, default=0,
 					help='an integer for the robot number')
 	args = parser.parse_args()
 	print('Controller for Jackal%d' %args.n)
@@ -570,5 +617,8 @@ if __name__ == '__main__':
 	except rospy.ROSInterruptException:
 		print("Shutting down\n")
 	except:
-		pass
+		print("Unknown error occured, shutting down\n")
+		J.slugs.Shutdown() #hopefully destroy the memory taken by slugs
+		print "Unexpected error:", sys.exc_info()[0]
+		raise
 	# END ALL

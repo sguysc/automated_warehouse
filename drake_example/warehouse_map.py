@@ -11,7 +11,7 @@ import glob
 import sys
 import resource
 from sets import Set
-import curses, sys, subprocess
+import curses, sys, subprocess, os
 import json
 from itertools import combinations
 from timeit import default_timer as timer
@@ -642,52 +642,91 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 		#else:
 		#	#this node is a dead-end so we might as well just not include it
 		#	pass
+	full_file = ''
 	for self_r in range(robots_num):
-		with open(filename + '_r' + str(self_r) + '.structuredslugs', 'w') as f: 	
+		with open(filename + '_r' + str(self_r) + '.structuredslugs', 'w+') as f: 	
+			if(self_r>0):
+				# because nothing changes in the spec besides the init and liveness,
+				# we just edit those specific parts and not compute again intersections with no-enter zones etc.
+				i1 = full_file.find('[SYS_LIVENESS]') + 15
+				i2 = full_file.find('[SYS_INIT]') - 1
+				i3 = full_file.find('[ENV_INIT]') + 11
+				i4 = i3 + full_file[i3:].find('\n') + 1
+
+				new_text = full_file[0:i1] 
+				cyc_goals = start_label['r%d' %self_r]
+				for g in cyc_goals[1:]:
+					new_text = new_text + 'R=%d\n' %( map_label_2_bit[g] )
+				new_text = new_text + 'R=%d\n' %( map_label_2_bit[cyc_goals[0]] )
+				new_text = new_text + full_file[i2:i3]
+				new_text = new_text + 'R=%d\n' %( map_label_2_bit[cyc_goals[0]] )
+				new_text = new_text + full_file[i4:]
+				
+				new_file = open(filename + '_r' + str(self_r) + '.structuredslugs', 'w')
+				new_file.write(new_text)
+				new_file.close()
+				continue
 			# structured slugs
 			f.write('[INPUT]\n') 
 			other_robots = np.setdiff1d(np.arange(0,robots_num), np.array([self_r]) )
+			total_actions    = len(MP) 
 			
 			f.write('R:0...%d\n' %( node_count ) ) # existence of self robot in funnel/region
 			for r in other_robots:
-				f.write('R%d:0...%d\n' %( r, node_count ) ) # existence of any robot in funnel/region j
+				for act in range(total_actions):
+					f.write('R%d_%d\n' %( r, act ) ) # existence of any robot anywhere nearby when taking funnel j
 			f.write('\n')
 
 			f.write('[OUTPUT]\n')
 			# every mp is an action, +1 (remember it's zero based so no actual addition) for the action 'stay in place'
-			total_actions    = len(MP) 
 			mp_stay_in_place = total_actions
 			f.write('mp:0...%d\n' %( total_actions )) # action mp of robot i 
 			f.write('\n')
 
 			f.write('[ENV_LIVENESS]\n')
 			# all the points the other robots want to reach (goals)
+			live_str = '('
+			for act in range(total_actions):
+				live_str = live_str + 'X_%d & ' %( act )
+			live_str = live_str[0:-3] + ')\n'
 			for r in other_robots:
-				for g in start_label['r%d' %r]:
-					f.write('R%d=%d\n' %( r, map_label_2_bit[g] ))
+				adv_far_away = live_str.replace('X', '!R%d'%r)
+				adv_near = live_str.replace('X', 'R%d'%r)
+				adv_near = adv_near.replace('&', '|')
+				f.write(adv_far_away)
+				f.write('#' + adv_near)
+				#for g in start_label['r%d' %r]:
+				#	f.write('R%d=%d\n' %( r, map_label_2_bit[g] ))
 			f.write('\n')
-
+			#import pdb; pdb.set_trace()
 			f.write('[SYS_LIVENESS]\n')
 			# all the points we want to reach (goals)
-			for g in start_label['r%d' %self_r]:
+			cyc_goals = start_label['r%d' %self_r]
+			for g in cyc_goals[1:]:
 				f.write('R=%d\n' %( map_label_2_bit[g] ))
+			f.write('R=%d\n' %( map_label_2_bit[cyc_goals[0]] ))
 			f.write('\n')
 
 			f.write('[SYS_INIT]\n') 
+			f.write('!(mp=%d)\n' %( total_actions ))
 			f.write('\n')
 
 			f.write('[ENV_INIT]\n')
+			f.write('R=%d\n' %( map_label_2_bit[start_label['r%d' %self_r][0]] )) 
 			# need to change this, either to have no specific start point, or, start at the current location,
 			# or have some mechanism to get from current location to start position
-			f.write('R=%d\n' %( map_label_2_bit[start_label['r%d' %self_r][0]] )) 
 			for r in other_robots:
-				f.write('R%d=%d\n' %(r, map_label_2_bit[start_label['r%d' %r][0]] )) # existence of any robot in funnel/region
+				adv_far_away = live_str.replace('X', '!R%d'%r)
+				f.write(adv_far_away)
+				#for act in range(total_actions):
+				#	f.write('!R%d_%d\n' %(r, act )) # existence of any robot in funnel close to self robot
 			f.write('\n')
 
 			f.write('[ENV_TRANS]\n')
 			all_mps = Set(np.arange(0, len(MP)))
 			list_of_formulas = []
 			list_of_mp_constraints = []
+			dict_connections = {}
 			# first, add all theoretically available motions to the environment transitions
 			for parent in G:
 				# add functionality to stay in place (added first with the hope of choosing this rather than some
@@ -695,7 +734,6 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 				f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \
 													   mp_stay_in_place, \
 													   map_label_2_bit[parent] ))
-
 				children = G.neighbors(parent) #list of successor nodes of parent
 				avail_links = Set([])
 				list_of_avail_funnels = []
@@ -717,57 +755,101 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 						#					mp_num, \
 						#					map_label_2_bit[parent] ))
 						list_of_avail_funnels.append(map_label_2_bit[child])
-						#import pdb; pdb.set_trace()
+						'''
+						try:
+							dict_connections[map_label_2_bit[child]].append(map_label_2_bit[parent])
+						except KeyError:
+							dict_connections[map_label_2_bit[child]] = []
+							dict_connections[map_label_2_bit[child]].append(map_label_2_bit[parent])
+						'''
+						# connectivity map (action->result)
 						f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(\
 											map_label_2_bit[parent], \
 											mp_num, \
 											map_label_2_bit[child] )) #this is allowed
-						for r in other_robots:
-							list_of_mp_constraints.append('(R=%d & !(R%d=%d))->!(mp\'=%d)\n' %(map_label_2_bit[parent], \
-																							   r, map_label_2_bit[child], mp_num))
+						# not needed
+						#for r in other_robots:
+						#	list_of_mp_constraints.append('(R=%d & (R%d=%d))->!(mp\'=%d)\n' %(map_label_2_bit[parent], \
+						#																	   r, map_label_2_bit[child], mp_num))
 						
 					else:
 						# intersects a no entry zone. can add reactivity right here.
 						# for now, it's a global avoid this region (as if we would've treated it as an obstacle)
-						# the # is just so I could recognize where it happens in the file
-						f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \
-															   mp_num, \
-															   map_label_2_bit[parent] ))
-						list_of_mp_constraints.append('(R=%d)->!(mp\'=%d)\n' %(map_label_2_bit[parent], mp_num))
+						# the # is just because if it's enabled it would add a state for every single motion 
+						# primitive. whereas, mp=stay is enough to capture that. it will reduce amount of states,
+						# although even if it was there, the shortest path would not have selected that
+						#f.write('#(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \
+						#									   mp_num, \
+						#									   map_label_2_bit[parent] ))
+						list_of_mp_constraints.append('(R=%d)->!(mp=%d)\n' %(map_label_2_bit[parent], mp_num))
 
 				# store the available formula for this funnel for the other robots
+				# option 1
+				'''
 				formula_str = '(X=%d)->(' %map_label_2_bit[parent]
 				for next_funnel in list_of_avail_funnels:
 					formula_str = formula_str + ('(X\'=%d <-> !(R=%d)) | ' %(next_funnel, next_funnel))
 				formula_str = formula_str + ('X\'=%d)\n' %(map_label_2_bit[parent]))
 				list_of_formulas.append(formula_str)
-				
+				'''		
+				# connectivity map
+				'''
+				formula_str = '(X=%d)->(' %map_label_2_bit[parent]
+				for next_funnel in list_of_avail_funnels:
+					formula_str = formula_str + ('X\'=%d | ' %(next_funnel))
+				formula_str = formula_str + ('X\'=%d)\n' %(map_label_2_bit[parent]))
+				list_of_formulas.append(formula_str)
+				'''
 				# explicitly state that all actions that are unavailable (were removed because of an obstacle)
 				# are pointing the the same funnel
 				links_not_provided = all_mps - avail_links
 				while(len(links_not_provided)>0):
-					f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \
-													   links_not_provided.pop(), \
-													   map_label_2_bit[parent] ))
-					#list_of_mp_constraints.append('(R=%d)->!(mp\'=%d)\n' %(map_label_2_bit[parent], \
-					#								   links_not_provided.pop()))
+					bad_mp = links_not_provided.pop()
+					#f.write('#(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \
+					#								   bad_mp, \
+					#								   map_label_2_bit[parent] ))
+					list_of_mp_constraints.append('(R=%d)->!(mp=%d)\n' %(map_label_2_bit[parent], \
+													   bad_mp))
+			# option 2
+			'''
+			for decendant, parents in dict_connections.items():
+				formula_str = '((' 
+				for next_funnel in parents:
+					formula_str = formula_str + ('X=%d | ' %(next_funnel))
+				formula_str = formula_str[0:-3] + (') & (R=%d | R\'=%d))->!(X\'=%d)\n' %(decendant, \
+																				   decendant, decendant))
+				list_of_formulas.append(formula_str)
+			'''
+			#import pdb; pdb.set_trace()
 			# this is for the other robots, how can they move but we don't worry ourselves with their exact
 			# policies, only that they cannot hit static obstacles nor the main robot
 			f.write('\n')
+			'''
 			for r in other_robots:
 				res = [sub.replace('X', 'R%d'%r) for sub in list_of_formulas]
 				f.writelines(res)
+				f.write('!(R%d\'=R)\n' %r)
+				f.write('!(R%d\'=R\')\n' %r)
+			f.write('\n')
+			'''
+						
+			f.write('[SYS_TRANS]\n')
+			#for r in other_robots:
+			#	f.write('!(R\'=R%d)\n' %r)
+			for r in other_robots:
+				for act in range(total_actions):
+					f.write('R%d_%d->!(mp=%d)\n' %(r, act, act )) # existence of any robot in funnel close to self robot
 			f.write('\n')
 			
-			f.write('[SYS_TRANS]\n')
 			# this is the robot which the policy is about
-			#f.writelines(list_of_mp_constraints)
-			f.write('\n')
-
-
+			f.writelines(list_of_mp_constraints)
+			
+			if(self_r == 0):
+				#store for later use with other robots
+				f.seek(0)
+				full_file = f.read()
 		
 	print('done.')
-	#import pdb; pdb.set_trace()
 	print('Converting to slugsin ...')
 	try:
 		resource.setrlimit(resource.RLIMIT_STACK, (2**29,-1))
@@ -780,28 +862,73 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 		sys.stdout = sys.__stdout__  # convert back to printing on screen
 	print('done.')
 	
+	# store for easy access when running realtime
 	dbfile = open(filename + '.label2bit', 'wb')
 	dill.dump(map_label_2_bit, dbfile)
 	dbfile.close()
 	
 	toc = timer()
 	print('Creating structuredslugs & converting to slugsin file took %f[sec]' %(toc-tic))
-	#import pdb; pdb.set_trace()
+
 	return map_label_2_bit
+
+# get a complete synthesized controller for our spec.
+def CheckRealizeability(robots_num, filename='map_funnel'):
+	tic = timer()
+	controllers = []
+	slugsLink = '/home/cornell/Tools/slugs_ltl_stack/src/slugs'
+	realizable = True
+	#import pdb; pdb.set_trace()
+	print('Starting to check realizeability. This might take some time ...')
+	for r in range(robots_num):
+		if(not realizable):
+			break;
+			
+		baseName  = '%s_r%d' %(filename, r)
+		specFile  = baseName + '.slugsin' 
+		
+		slugsProcess = subprocess.Popen(slugsLink + ' ' + specFile, bufsize=1048000, stderr=subprocess.PIPE, \
+                                    shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+		# wait for synthesis to be done
+		stderr, stdout = "",""
+		
+		while True: 
+			# retrieve outputs
+			stdout += slugsProcess.stdout.readline().strip()
+			stderr += slugsProcess.stderr.readline().strip()
+			# exit if synthesis is done and ready for execution
+			if "error" in stderr.lower():
+				realizable = False
+				break
+			elif "unrealizable" in stderr:
+				realizable = False
+				break
+			elif "realizable" in stderr:
+				break
+		print('Robot %d done ...' %(r))
+						
+	toc = timer()
+	print('Checking realizeability for the %d robots, via slugs took %f[sec]' %(robots_num, toc-tic))
+	
+	if(realizable):
+		print('All specifications are realizeable.\nHURRAY!')
+	else:
+		print('Robot%d specification is not realizeable or error occured with its spec.' %r)
+	return realizable
 
 # get a complete synthesized controller for our spec.
 def SynthesizeController(robots_num, filename='map_funnel'):
 	tic = timer()
 	controllers = []
-	slugsLink = '/home/cornell/Tools/slugs/src/slugs'
+	slugsLink = '/home/cornell/Tools/slugs_ltl_stack/src/slugs'
 	
-	robots_num = 1 #GUY, TO REMOVE!!!
+	robots_num = 1 # GUY, TO REMOVE!!!
 	for r in range(robots_num):
 		baseName  = '%s_r%d' %(filename, r)
 		specFile  = baseName + '.slugsin' 
-
+		
 		#--interactiveStrategy
-		slugsProcess = subprocess.Popen(slugsLink + ' --explicitStrategy --jsonOutput ' + specFile, \
+		slugsProcess = subprocess.Popen(slugsLink + ' --explicitStrategy --cooperativeGR1Strategy --jsonOutput ' + specFile, \
 										shell=True, bufsize=1048000, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 
 		#slugsProcess.stdin.write("XPRINTINPUTS\n")
@@ -994,8 +1121,9 @@ if __name__ == "__main__":
 	# the reverse dictionary is useful
 	map_bit_2_label = dict((v, k) for k, v in map_label_2_bit.items())
 	
-	synctrl = SynthesizeController(robots_num, filename=map_kind) #'map_funnel')
-	GetSpecificControl(synctrl, map_bit_2_label, filename=map_kind)
+	CheckRealizeability(robots_num, filename=map_kind)
+	#synctrl = SynthesizeController(robots_num, filename=map_kind) #'map_funnel')
+	#GetSpecificControl(synctrl, map_bit_2_label, filename=map_kind)
 	print('Done. Close figure to exit.')
 	plt.show(block=True)
 	
