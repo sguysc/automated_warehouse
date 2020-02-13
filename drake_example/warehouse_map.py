@@ -26,7 +26,7 @@ from shapely.geometry import Polygon, box, Point
 
 from StructuredSlugsParser import compiler as slugscomp
 
-MAP_KIND = 'lab' # 'raymond'
+MAP_KIND = 'lab' #'raymond' 
 # I commented this because it causes loading DubinsPlantCar which tries to load pydrake which is unavailable in the lab computer
 #from DubinsPlantCar import CELL_SIZE
 CELL_SIZE = 0.25 #[m]
@@ -35,14 +35,14 @@ CELL_SIZE = 0.25 #[m]
 import GeometryFunctions as gf
 import ROSUtilities as RU
 
-ft2m     = 0.3048
+ft2m     = 0.3048  # [m/ft]
 W_Height = 0.0 #233.0 * ft2m # [m]
 W_Width  = 0.0 #434.0 * ft2m # [m]
 cell     = CELL_SIZE #1.25 # [m]
-pix2m    = 0.0
+pix2m    = 0.0  # not really used anymore, was active when got pictures as maps
 W_xgrid  = []
 W_ygrid  = []
-robots_num = 1
+robots_num = 0 #global variable. actually, decided later from the spec file
 	
 #plant = DubinsCarPlant_[float]() # Default instantiation
 #FL_WB = plant.L      # wheel base, for a 36inch length fork, dimension C in spec.
@@ -115,7 +115,7 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 		# if it already exist, save time re-creating the graph
 		G = LoadGraphFromFile(map_kind)
 		toc = timer()
-		print('Motion primitives file exist, so just loading existing (%f[sec])' %(toc-tic))
+		print('Motion primitives file exist, so just loading existing (%.2f[sec])' %(toc-tic))
 		print(nx.info(G))
 		#import pdb; pdb.set_trace()
 		return G, ax
@@ -183,7 +183,7 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 	SaveGraphToFile(G, map_kind)
 	#import pdb; pdb.set_trace()
 	toc = timer()
-	print('Motion primitives on map took %f[sec]' %(toc-tic))
+	print('Motion primitives on map took %.2f[sec]' %(toc-tic))
 	return G, ax
 
 # function that decides if an obstacle-free path exist between start and end point
@@ -303,7 +303,7 @@ def ReplicateMap(map_kind = 'none'):
 	#import pdb; pdb.set_trace()
 	
 	toc = timer()
-	print('Loading map took %f[sec]' %(toc-tic))
+	print('Loading map took %.3f[sec]' %(toc-tic))
 	
 	return workspace, obs, no_enter, one_ways
 
@@ -443,7 +443,7 @@ def FindPathBetweenGoals(G, goals):
 			paths.append([])
 
 	toc = timer()
-	print('Find shortest path (Dijkstra Graph search) took %f[sec]' %(toc-tic))
+	print('Find shortest path (Dijkstra Graph search) took %.3f[sec]' %(toc-tic))
 	return paths
 
 # conversion from arbitrary location on map to the closest funnel (location & orientation)
@@ -588,7 +588,7 @@ def plot_path(ax, G, paths, MotionPrimitives, robot_i):
 				plot_ellipsoid(ax, e, orient, color=(float(j)/float(len(paths)),robot_i,robot_i))
 	
 	toc = timer()
-	print('Plotting the shortest path took %f[sec]' %(toc-tic))
+	print('Plotting the shortest path took %.2f[sec]' %(toc-tic))
 
 
 # generates the specification file for slugs (decentralized) 
@@ -868,7 +868,7 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 	dbfile.close()
 	
 	toc = timer()
-	print('Creating structuredslugs & converting to slugsin file took %f[sec]' %(toc-tic))
+	print('Creating structuredslugs & converting to slugsin file took %.2f[sec]' %(toc-tic))
 
 	return map_label_2_bit
 
@@ -908,7 +908,7 @@ def CheckRealizeability(robots_num, filename='map_funnel'):
 		print('Robot %d done ...' %(r))
 						
 	toc = timer()
-	print('Checking realizeability for the %d robots, via slugs took %f[sec]' %(robots_num, toc-tic))
+	print('Checking realizeability for the %d robots, via slugs took %.2f[sec]' %(robots_num, toc-tic))
 	
 	if(realizable):
 		print('All specifications are realizeable.\nHURRAY!')
@@ -947,7 +947,7 @@ def SynthesizeController(robots_num, filename='map_funnel'):
 			json.dump(controllers[-1], write_file)
 	
 	toc = timer()
-	print('Synthesizing control via slugs took %f[sec]' %(toc-tic))
+	print('Synthesizing control via slugs took %.2f[sec]' %(toc-tic))
 	
 	return controllers
 
@@ -1025,7 +1025,7 @@ def GetSpecificControl(Controllers, map_bit_2_label, filename='map_funnel', debu
 	
 	toc = timer()
 	if(debug):
-		print('Extracting plan (from slugs) took %f[sec]' %(toc-tic))
+		print('Extracting plan (from slugs) took %.2f[sec]' %(toc-tic))
 	
 	#import pdb; pdb.set_trace()
 	jsonList = []

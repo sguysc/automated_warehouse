@@ -15,15 +15,19 @@ if ~isequal(file,0)
 else
     return
 end
-%map_name = 'lab';
-map_name = 'raymond';
+map_name = 'lab';
+%map_name = 'raymond';
 
 map_text = fileread([map_name '.map']);
 map_data = jsondecode(map_text);
 mp_text = fileread([map_name '.motion']);
 mp_data = jsondecode(mp_text);
-states_text = fileread([map_name '.states']);
-states_data = jsondecode(states_text);
+states_text = fopen([path file(1:2) '_' map_name '.states'], 'r');
+delimiter = {',',';'};
+startRow = 1;
+formatSpec = '%d%s%d%[^\n\r]';
+states_data = textscan(states_text, formatSpec, 'Delimiter', delimiter, 'TextType', 'string', 'EmptyValue', NaN, 'HeaderLines' ,startRow-1, 'ReturnOnError', false, 'EndOfLine', '\r\n');
+fclose(states_text);
 
 delimiter = {',',';'};
 startRow = 2;
@@ -103,18 +107,19 @@ for i =1:length(map_data.one_ways)
 end	
 % lab
 %path = {'H1X12Y6', 'H3X15Y26', 'H3X1Y2'};
-path = {states_data.state};
+path = states_data{2};
+%path = {'H1X14Y7', 'H2X11Y9', 'H2X7Y10', 'H1X5Y13', 'H1X4Y17', 'H1X4Y21', 'H1X4Y25'};
 %states = [1,12,6; ...
 %          3,15,26;...
 %          3,1,2];
-%actions = [0, 0, 0];
-actions = zeros(1, length(states_data));
-states = zeros(length(states_data), 3);
-for i = 1:length(states_data)
+%actions = [2, 5, 4, 6, 3, 0, 0];
+actions = states_data{3};
+states = zeros(length(path), 3);
+for i = 1:length(path)
     tmp = sscanf(path{i}, 'H%dX%dY%d');
     states(i,:) = tmp';
-    actions(i) = states_data(i).action;
 end
+
 % % gazebo
 %path = {'R1220', 'R1216','R1212','R1108','R301','R159','R1300','R1125','R798', ...
 %    'R453','R449','R1311','R2','R1263','R39','R1220'};

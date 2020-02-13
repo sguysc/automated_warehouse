@@ -20,6 +20,7 @@ class SlugsInterface():
 		self._Nout = 0  # number of command bits
 		self._Nself = 0 # number of self robot bits
 		self._Nsens = 0 # number of sensors bits
+		self._NGoals = 0 # total number of goals
 		
 		# open the process of slugs and keep it open to recieve commands
 		self.slugsProcess = subprocess.Popen(slugsLink + ' --interactiveStrategy ' + self.name + '.slugsin', \
@@ -89,6 +90,23 @@ class SlugsInterface():
 			self._Nout = len(list_of_outputs)
 			self._outputs = dict(zip(list_of_outputs, [0]*self._Nout))
 			
+	def DiscoverGoals(self):
+		if(self.enabled):
+			self.slugsProcess.stdin.write("XGETNOFLIVENESSPROPERTIES\n")
+			self.slugsProcess.stdin.flush()
+
+			stdout, stderr = "", ""
+			#while not stdout.endswith("\n"):
+			#while not ">" in stdout:
+			stdout += self.slugsProcess.stdout.readline()
+			stdout += self.slugsProcess.stdout.readline()
+			stdout += self.slugsProcess.stdout.readline()
+			
+			outputs_state = stdout.replace(">","").strip()
+			#print("outputs: {outputs_state}".format(outputs_state=outputs_state))
+			list_of_outputs = outputs_state.split('\n')
+			self._NGoals = int(list_of_outputs[-1])
+			
 	# get the list of inputs, returns self_robot, restrictions
 	def GetCurrentInputs(self):
 		if(self.enabled):
@@ -156,42 +174,90 @@ class SlugsInterface():
 	# in: the sensed robot location & sensors of the available funnels
 	def FindNextStep(self, robot_sensed_state, funnel_occupancy_dict):
 		if(self.enabled):
-			#import pdb; pdb.set_trace()
-			# do stuff to create the reversed binary string slugs expects
-			sensed_state = format(robot_sensed_state, '0%db' %(self._Nself) )
-			sensed_state = sensed_state[::-1]
-			
-			# convert dict of restrictions into a string
-			sensed_inputs = ""
-			for prop in range(self._Nsens):
-				if prop in funnel_occupancy_dict:
-					sensed_inputs += "1" if (funnel_occupancy_dict[prop] is True) else "0"
-				else:
-					sensed_inputs += "."
+			if( True):
+				#import pdb; pdb.set_trace()
+				# do stuff to create the reversed binary string slugs expects
+				sensed_state = format(robot_sensed_state, '0%db' %(self._Nself) )
+				sensed_state = sensed_state[::-1]
+
+				# convert dict of restrictions into a string
+				sensed_inputs = ""
+				for prop in range(self._Nsens):
+					if prop in funnel_occupancy_dict:
+						sensed_inputs += "1" if (funnel_occupancy_dict[prop] is True) else "0"
+					else:
+						sensed_inputs += "."
+
+				sensed_state = sensed_state + sensed_inputs 
+				self.slugsProcess.stdin.write("XMAKETRANS\n" + sensed_state)
+				self.slugsProcess.stdin.flush()
+
+				# retrieve the new state
+				stdout, stderr = "", ""
+				while not ("," in stdout or "error" in stdout.lower()):
+					stdout += self.slugsProcess.stdout.readline()
+
+				trans = stdout.replace(">","").strip()
+				print("transition to state: {trans}".format(trans=trans))
+				self._trans_state = trans.partition(",")[0]
+				self._trans_state_n = [int(x) for x in list(self._trans_state)]
 				
-			sensed_state = sensed_state + sensed_inputs 
-			self.slugsProcess.stdin.write("XMAKETRANS\n" + sensed_state)
-			self.slugsProcess.stdin.flush()
+				if(trans.partition(",")[2]==0 and self._current_goal>0):
+					self.SetGoal(goal=0) #slugs is giving different answers second time around :(
+				else:
+					self._current_goal = trans.partition(",")[2]
+					
+				print('wrote: %s' %sensed_state)
+				next_state_str = self._trans_state[0:self._Nself]
+				next_state     = int(next_state_str[::-1], 2)
+				next_cmd_str   = self._trans_state[-self._Nout:]
+				next_cmd       = int(next_cmd_str[::-1], 2)
+				#if(next_cmd == 9):
+					#print('got a 9, trying again')
+					# try again :(
+					#try:
+					#	new_goal = int(trans.partition(",")[2])
+					#except:
+					#	new_goal = 0
+					#	import pdb; pdb.set_trace()
+					#print('setting goal: %d' %new_goal)
+					#self.SetGoal(goal=new_goal)
+				#	continue
+					
+				#break
 
-			# retrieve the new state
-			stdout, stderr = "", ""
-			while not ("," in stdout or "error" in stdout.lower()):
-				stdout += self.slugsProcess.stdout.readline()
-			
-			trans = stdout.replace(">","").strip()
-			#print("transition to state: {trans}".format(trans=trans))
-
-			self._trans_state = trans.partition(",")[0]
-			self._trans_state_n = [int(x) for x in list(self._trans_state)]
-			
-			next_state_str = self._trans_state[0:self._Nself]
-			next_state     = int(next_state_str[::-1], 2)
-			next_cmd_str   = self._trans_state[-self._Nout:]
-			next_cmd       = int(next_cmd_str[::-1], 2)
+				'''
+				if(trans.partition(",")[2] == self._current_goal):
+					try:
+						self._trans_state = trans.partition(",")[0]
+						self._trans_state_n = [int(x) for x in list(self._trans_state)]
+					except:
+						import pdb; pdb.set_trace()
+					print('wrote: %s' %sensed_state)
+					next_state_str = self._trans_state[0:self._Nself]
+					next_state     = int(next_state_str[::-1], 2)
+					next_cmd_str   = self._trans_state[-self._Nout:]
+					next_cmd       = int(next_cmd_str[::-1], 2)
+				else:
+					# don't know why but until you set the next goal, it 
+					# keeps being in this state and outputting 'stay in place' command
+					#goal = int(self._current_goal)
+					#new_goal = goal+1 if goal<(self._NGoals-1) else 0
+					try:
+						new_goal = int(trans.partition(",")[2])
+					except:
+						new_goal = 0
+						import pdb; pdb.set_trace()
+					print('setting goal: %d' %new_goal)
+					self.SetGoal(goal=new_goal)
+					continue
+					
+				break
+				'''
 			
 			return next_state, next_cmd
 		else:
-			return ''
+			return '' , -1
 			
 	# tell the class the you've actually made the transition
 	def MoveNextStep(self):
@@ -219,43 +285,155 @@ class SlugsInterface():
 			self.enabled = False
 	
 if __name__ == "__main__":
-	fname = 'smalllab'
-	import networkx as nx
-	G = nx.read_gpickle(fname + '.pickle')
-	
-	with open(fname + '.label2bit', 'rb') as dbfile:
-		map_label_2_bit = dill.load(dbfile)
-		map_bit_2_label = dict((v, k) for k, v in map_label_2_bit.items())
-	
-	SI = SlugsInterface(fname + '_r0')
-	SI.DiscoverInputs()
-	SI.DiscoverOutputs()
-	SI.GetInitialPos()
-	cur_state = 0
-	sensors = dict(zip(range(SI._Nsens), [False]*SI._Nsens))
-	#import pdb; pdb.set_trace()
-	
-	for i in range(20):
-		#if(i==15):
-		#	import pdb; pdb.set_trace()
+	try:
+		fname = 'lab'
+		import networkx as nx
+		G = nx.read_gpickle(fname + '.pickle')
+
+		with open(fname + '.label2bit', 'rb') as dbfile:
+			map_label_2_bit = dill.load(dbfile)
+			map_bit_2_label = dict((v, k) for k, v in map_label_2_bit.items())
+
+		SI = SlugsInterface(fname + '_r0')
+		SI.DiscoverInputs()
+		SI.DiscoverOutputs()
+		SI.DiscoverGoals()
+		SI.GetInitialPos()
+		'''
+		cur_state = 0
+		sensors = dict(zip(range(SI._Nsens), [False]*SI._Nsens))
+		#import pdb; pdb.set_trace()
+
+		for i in range(20):
+			#if(i==15):
+			#	import pdb; pdb.set_trace()
+			cur_state, cur_cmd = SI.GetNumericState()
+			cur_state_label = map_bit_2_label[cur_state]
+			next_state = -1
+			if(cur_cmd==9):
+				# stuck, stay in place
+				SI.SetGoal(goal=0)
+				next_state = cur_state_label
+			else:
+				for key, val in G[cur_state_label].items():
+					if( val['motion'] == cur_cmd):
+						next_state = key
+						break
+			#import pdb; pdb.set_trace()
+			SI.FindNextStep(map_label_2_bit[next_state], sensors)
+			print('%d) Were in %s (%d), took action %d to get to %s(%d)' \
+				  %(i+1, cur_state_label, cur_state, cur_cmd, next_state, map_label_2_bit[next_state]))
+			SI.MoveNextStep() # this simulates the fact that we eventually got to where we need
+		'''
+		sensors = {}
+		i = 0
 		cur_state, cur_cmd = SI.GetNumericState()
 		cur_state_label = map_bit_2_label[cur_state]
-		next_state = -1
-		if(cur_cmd==9):
-			# stuck, stay in place
-			SI.SetGoal(goal=0)
-			next_state = cur_state_label
-		else:
-			for key, val in G[cur_state_label].items():
-				if( val['motion'] == cur_cmd):
-					next_state = key
-					break
+		g_next = -1
 		#import pdb; pdb.set_trace()
-		SI.FindNextStep(map_label_2_bit[next_state], sensors)
-		print('%d) Were in %s (%d), took action %d to get to %s(%d)' \
-			  %(i+1, cur_state_label, cur_state, cur_cmd, next_state, map_label_2_bit[next_state]))
-		SI.MoveNextStep() # this simulates the fact that we eventually got to where we need
-	SI.Shutdown()
+		while True:
+			i += 1
+			#cur_state, cur_cmd = SI.GetNumericState()
+			if(cur_cmd != 9):
+				next_state = -1
+				for key, val in G[cur_state_label].items():
+					if( val['motion'] == cur_cmd):
+						next_state = key
+						break
+				#import pdb; pdb.set_trace()
+				__, cur_cmd = SI.FindNextStep(map_label_2_bit[next_state], sensors)
+				g_next = next_state
+				print('%d) Were in %s (%d), took action %d to get to %s(%d)' \
+					  %(i+1, cur_state_label, cur_state, cur_cmd, next_state, map_label_2_bit[next_state]))
+				SI.MoveNextStep()
+				cur_state, cur_cmd = SI.GetNumericState()
+				cur_state_label = map_bit_2_label[cur_state]
+			else:
+				cur_state, cur_cmd = SI.FindNextStep(map_label_2_bit[g_next], sensors)
+				cur_state_label = map_bit_2_label[cur_state]
+				#next_state = cur_state_label
+				print('stuck')
+			if(i>100):
+				break
+			
+		'''
+		curr_state, action = SI.GetNumericState()
+		print('start_state=%d\tcmd=%d' %(curr_state, action))
+		next_state, next_cmd = SI.FindNextStep(952, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(1338, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(1634, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(771, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(451, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(126, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(122, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(761, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(1350, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(173, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(1292, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(461, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(1135, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(1726, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(428, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(264, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(1266, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(1533, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(1340, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(968, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(978, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(552, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(1541, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		next_state, next_cmd = SI.FindNextStep(1537, sensors)
+		print('next_state=%d\tnext_cmd=%d' %(next_state, next_cmd))
+		SI.MoveNextStep()
+		'''
+	finally:
+		SI.Shutdown()
 	#import pdb; pdb.set_trace()
 	
 	
