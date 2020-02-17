@@ -14,8 +14,8 @@ JACKAL = 'jackal0'
 
 def measurement_cb(msg):
 	global curr_pos
-	global start_pos
-	global JACKAL
+	#global start_pos
+	#global JACKAL
 	i    = msg.name.index(JACKAL)
 	pose = msg.pose[i].position
 	Q    = msg.pose[i].orientation
@@ -25,8 +25,8 @@ def measurement_cb(msg):
 
 if __name__ == '__main__':
 	global curr_pos
-	global start_pos
-	global JACKAL
+	#global start_pos
+	#global JACKAL
 	
 	rospy.init_node('stam2')
 	
@@ -44,13 +44,15 @@ if __name__ == '__main__':
 	#import pdb; pdb.set_trace()
 	
 	while not rospy.is_shutdown():
-		time.sleep(5.)
 		# only fix if we haven't started
 		if(abs(curr_pos[2] - start_pos[2]) > 0.3 and \
 		   abs(curr_pos[1] - start_pos[1]) < 0.2 and \
 		   abs(curr_pos[0] - start_pos[0]) < 0.5 ):
 			print('fixing ....')
 			pub.publish(aa)
+		time.sleep(10.)
+		#else:
+		#	print('(%f,%f,%f)' %(curr_pos[0],curr_pos[1],curr_pos[2]))
 	
 	
 		

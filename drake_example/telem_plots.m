@@ -1,5 +1,5 @@
 %%
-close all
+%close all
 clear all
 clc
 
@@ -32,7 +32,7 @@ fclose(states_text);
 delimiter = {',',';'};
 startRow = 2;
 
-formatSpec = '%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%[^\n\r]';
+formatSpec = '%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%f%[^\n\r]';
 
 % Open the text file.
 fileID = fopen(filename,'r');
@@ -63,7 +63,7 @@ linvel = telemetry(:,17:19);
 rotvel = telemetry(:,20:22);
 x_ref_new = telemetry(:,23:25);
 u_ref_new = telemetry(:,26:27);
-
+t_sensetime = telemetry(:,28);
 
 %% Jackal stuff
 % fclose(fid);
@@ -152,7 +152,7 @@ for i = 1:size(states,1)
     traj =[traj ; W_xgrid(states(i,2)+1), W_ygrid(states(i,3)+1)];
 end
 %%
-close all
+%close all
 
 figure;
 

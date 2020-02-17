@@ -210,14 +210,14 @@ def IsPathFree(mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, 
 		e_center = np.array([xs, ys]) + x_rel
 		e_center = np.hstack((e_center, theta + orient*90.0*math.pi/180.0))
 		# create the ellipsoid object
-		e = gf.Ellipse(e_center, S)
+		e = gf.Ellipsoid(e_center, S)
 		# iterate through all obstacles to see if any one of them
 		# touches any of the ellipsoids (funnel). This does not take
 		# into account the funnel in between any two ellipsoids
 		for obs in obstacles:
 			v = pix2m * np.array(obs.exterior.coords[:])
 			b = gf.Box(v)
-			overlaps = gf.TestIntersectionBoxEllipse(b, e)
+			overlaps = gf.TestIntersectionBoxEllipsoid(b, e)
 			if(overlaps == True):
 				return False
 		
@@ -231,7 +231,7 @@ def IsPathFree(mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, 
 			e_center = np.array([xs, ys]) + x_rel
 			e_center = np.hstack((e_center, theta + orient*90.0*math.pi/180.0))
 			# create the ellipsoid object
-			e = gf.Ellipse(e_center, S)
+			e = gf.Ellipsoid(e_center, S)
 			plot_ellipsoid(ax, e, orient)
 			
 			# plot the 2-D ellipse 
@@ -502,9 +502,9 @@ def plot_map(workspace, obstacles):
 	return ax
 
 # plots a single ellipsoid in 3D
-def plot_ellipsoid(ax, ellipse, orient, color=None): 
-	A = ellipse.M
-	center = ellipse.center
+def plot_ellipsoid(ax, ellipsoid, orient, color=None): 
+	A = ellipsoid.M
+	center = ellipsoid.center
 
 	# find the rotation matrix and radii of the axes
 	U, s, rotation = LA.svd(A)
@@ -515,7 +515,7 @@ def plot_ellipsoid(ax, ellipse, orient, color=None):
 	if(np.abs(radii[2]) > math.pi):
 		radii[2] = 45.0*math.pi/180.0
 		
-	# create ellipse in spherical coordinates
+	# create ellipsoid in spherical coordinates
 	u = np.linspace(0.0, 2.0 * np.pi, 100)
 	v = np.linspace(0.0, np.pi, 100)
 	x = radii[0] * np.outer(np.cos(u), np.sin(v))
@@ -536,7 +536,7 @@ def plot_ellipsoid(ax, ellipse, orient, color=None):
 			clr = (0.7,0.5,0.8)
 	else:
 		clr = color
-	# plot ellipse
+	# plot ellipsoid
 	ax.plot_wireframe(x, y, z,  rcount=6, ccount=6, color=clr, alpha=0.2) #rstride=4, cstride=4
 	#mlab.mesh(x, y, z) 
 
@@ -583,8 +583,8 @@ def plot_path(ax, G, paths, MotionPrimitives, robot_i):
 				e_center = np.array([xs, ys]) + x_rel
 				e_center = np.hstack((e_center, theta + orient*90.0*math.pi/180.0))
 				# create the ellipsoid object
-				# do I need to rotate the ellipse as well??? CHECK THIS!
-				e = gf.Ellipse(e_center, S)
+				# do I need to rotate the ellipsoid as well??? CHECK THIS!
+				e = gf.Ellipsoid(e_center, S)
 				plot_ellipsoid(ax, e, orient, color=(float(j)/float(len(paths)),robot_i,robot_i))
 	
 	toc = timer()
@@ -742,7 +742,7 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 					avail_links.update([mp_num])
 
 					# all the points we wish to avoid (do not enter zones)
-					orient, xs, ys = [int(s) for s in re.findall(r'-?\d+\.?\d*', parent)] # extract ellipse pose
+					orient, xs, ys = [int(s) for s in re.findall(r'-?\d+\.?\d*', parent)] # extract Ellipsoid pose
 					#if(map_label_2_bit[parent] == 1290): #'H1X12Y6'
 					#	import pdb; pdb.set_trace()
 					out_of_no_enter = IsPathFree(MP[mp_num], no_enter, GetRotmat(orient), orient, W_xgrid[xs], W_ygrid[ys], 0, 0, \
@@ -838,7 +838,7 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 			#	f.write('!(R\'=R%d)\n' %r)
 			for r in other_robots:
 				for act in range(total_actions):
-					f.write('R%d_%d->!(mp=%d)\n' %(r, act, act )) # existence of any robot in funnel close to self robot
+					f.write('R%d_%d\'->!(mp\'=%d)\n' %(r, act, act )) # existence of any robot in funnel close to self robot
 			f.write('\n')
 			
 			# this is the robot which the policy is about
