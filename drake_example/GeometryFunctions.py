@@ -268,9 +268,13 @@ def plot_be(box, ellipsoid, overlap):
 		
 		
 def test():
-	'''
-	e0 = np.array([ 6. ,3. ,-math.pi-1.1 ])
-	S  = np.array([ [1, 0., 0.], [0., 0.2, 0.], [0., 0., 1.] ])
+	
+	#e0 = np.array([ 6. ,3. ,-math.pi-1.1 ])
+	e0 = np.array([3.13210913, 0.05988775, 0.15797532])
+	#S  = np.array([ [1, 0., 0.], [0., 0.2, 0.], [0., 0., 1.] ])
+	S  = np.array([[ 0.1579781 , -0.01026418, -0.01524015], \
+				   [-0.01026418,  0.13445994,  0.01890003], \
+				   [-0.01524015,  0.01890003,  0.19282797]])
 	vertices = np.array([[10.,  1.], [10.,  11.], [5.,  11.], [5.,  1.], [10.,  0.]])
 	e  = Ellipsoid(e0, S)
 	
@@ -283,7 +287,7 @@ def test():
 	e  = Ellipse(e0, S)
 	b = Rectangle(center, 1., 1.)
 	overlaps = TestIntersectionRectangleEllipse(b, e)
-
+	'''
 	
 	ret = True
 	if(overlaps == True):
@@ -293,15 +297,16 @@ def test():
 		print('not overlapping')
 		ret = True
 		
-	#plot_be(b, e, ret)
-	xbar = e0 - np.array([0.0, 0.5])
-	print('my test found %d' %(xbar.dot(S.dot(xbar)) <=1 ))
+	plot_be(b, e, ret)
+	#xbar = e0 - np.array([0.0, 0.5])
+	#print('my test found %d' %(xbar.dot(S.dot(xbar)) <=1 ))
 	
 	return ret
 	
 		
 if __name__ == "__main__":
 	tic = timer()
+	#for i in range(1000):
 	test()
 	toc = timer()
 	print('Took %.3f[sec] to run' %(toc-tic))

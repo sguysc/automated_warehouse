@@ -26,13 +26,14 @@ from shapely.geometry import Polygon, box, Point
 
 from StructuredSlugsParser import compiler as slugscomp
 
-MAP_KIND = 'lab' #'raymond' 
+MAP_KIND = 'lab' #'raymond'
 # I commented this because it causes loading DubinsPlantCar which tries to load pydrake which is unavailable in the lab computer
 #from DubinsPlantCar import CELL_SIZE
 CELL_SIZE = 0.25 #[m]
 #CELL_SIZE = 1.25 #[m]
 
-import GeometryFunctions as gf
+import GeometryFunctions as gf_old
+import GeometryFunctions_fcl as gf
 import ROSUtilities as RU
 
 ft2m     = 0.3048  # [m/ft]
@@ -211,13 +212,20 @@ def IsPathFree(mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, 
 		e_center = np.hstack((e_center, theta + orient*90.0*math.pi/180.0))
 		# create the ellipsoid object
 		e = gf.Ellipsoid(e_center, S)
+		#e1 = gf_old.Ellipsoid(e_center, S)
 		# iterate through all obstacles to see if any one of them
 		# touches any of the ellipsoids (funnel). This does not take
 		# into account the funnel in between any two ellipsoids
 		for obs in obstacles:
 			v = pix2m * np.array(obs.exterior.coords[:])
-			b = gf.Box(v)
+			b = gf.Box(v, theta_center=e_center[2], theta_delta=np.pi*45./180.) #because that's how we defined the cell
+																				#the purpose is the "ignore" the badly scaled
+																				#ellipses in the theta direction by making box smaller
+			#b1 = gf_old.Box(v)
 			overlaps = gf.TestIntersectionBoxEllipsoid(b, e)
+			#overlaps1 = gf_old.TestIntersectionBoxEllipsoid(b1, e1)
+			#if(overlaps != overlaps1):
+			#	import pdb; pdb.set_trace()
 			if(overlaps == True):
 				return False
 		
@@ -485,9 +493,9 @@ def plot_map(workspace, obstacles):
 
 	for obs in obstacles:
 		v = pix2m * np.array(obs.exterior.coords[:])
-		box = gf.Box(v) 
+		boxx = gf.Box(v) 
 		#plot box
-		for s, e in combinations(box.vertices, 2):
+		for s, e in combinations(boxx.vertices, 2):
 			if(np.sum(s==e) == 2): # works only when parallel!!
 				ax.plot3D(*zip(s, e), color="b")
 
@@ -1096,7 +1104,7 @@ if __name__ == "__main__":
 	
 	MP = LoadMP(fName='MPLibrary.lib')
 	MotionPrimitivesToFile(map_kind, MP)
-	
+	#import pdb; pdb.set_trace()
 	workspace, obs, no_enter, one_ways = ReplicateMap(map_kind=map_kind) #
 	goals, robots_num = GetGoals(map_kind=map_kind)
 	# save it to file

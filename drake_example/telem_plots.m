@@ -22,7 +22,7 @@ map_text = fileread([map_name '.map']);
 map_data = jsondecode(map_text);
 mp_text = fileread([map_name '.motion']);
 mp_data = jsondecode(mp_text);
-states_text = fopen([path file(1:2) '_' map_name '.states'], 'r');
+states_text = fopen([path strtok(file,'.') '.state'], 'r');
 delimiter = {',',';'};
 startRow = 1;
 formatSpec = '%d%s%d%[^\n\r]';
@@ -288,7 +288,7 @@ plot(t, [x_ref(:,1),x_ref(:,2),x_ref(:,3), ...
 %title('pose'); clickableLegend('xref', 'yref', '\thetaref'); grid on;
 title('pose'); clickableLegend('xknot', 'yknot', '\thetaknot', 'xref', 'yref', '\thetaref', 'xsim', 'ysim', '\thetasim'); grid on;
 h(2)=subplot(212);
-plot(t, [state, ellipse]); clickableLegend('state', 'ellipse')
+plot(t, [state, ellipse, action]); clickableLegend('state', 'ellipse', 'motion')
 linkaxes(h,'x');
 
 figure;

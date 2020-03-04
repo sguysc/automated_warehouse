@@ -324,7 +324,7 @@ class SlugsInterface():
 			else:
 				self._current_goal = trans.partition(",")[2]
 
-			print('wrote: %s' %sensed_state)
+			#print('wrote: %s' %sensed_state)
 			next_state_str = self._trans_state[0:self._Nself]
 			next_state     = int(next_state_str[::-1], 2)
 			next_cmd_str   = self._trans_state[-self._Nout:]

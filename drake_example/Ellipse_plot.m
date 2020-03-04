@@ -95,7 +95,7 @@ if strcmp(Type,'2D')
     % guy, to fit my axes ...
     plot(X(2,:),X(1,:), 'Color', [.8 .8 .8]);
     hold on;
-    plot(C(2),C(1),'.k');
+    %plot(C(2),C(1),'.k');
     pnts = X;
     %axis equal, %grid
 else
