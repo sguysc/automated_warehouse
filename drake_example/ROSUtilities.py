@@ -155,8 +155,8 @@ def CreateCustomMapWorld(filename, bounds, obstacles):
 		'''
 		for obs in obstacles:
 			if((obs[2]-obs[0]) > (obs[3]-obs[1])):
-				AddLongShelf(f, (obs[2]+obs[0])/2.0, obs[1]+(obs[3]-obs[1])/2.0, 0.0, \
-							 (obs[2]-obs[0]), (obs[3]-obs[1])/2.0, idx)
+				AddLongShelf(f, (obs[2]+obs[0])/2.0, obs[3], 0.0, \
+							 (obs[2]-obs[0]), (obs[3]-obs[1])/1.0, idx) #obs[1]+(obs[3]-obs[1])/2.0
 				'''
 				AddLongShelf(f, (obs[2]+obs[0])/2.0, obs[1]+(obs[3]-obs[1])/4.0-1, 0.0, \
 							 (obs[2]-obs[0])-0.1, (obs[3]-obs[1])/2.0-0.1, idx)
@@ -165,8 +165,8 @@ def CreateCustomMapWorld(filename, bounds, obstacles):
 							 (obs[2]-obs[0])-0.1, (obs[3]-obs[1])/2.0-0.1, idx)
 				'''
 			else:
-				AddLongShelf(f, obs[0]+(obs[2]-obs[0])/2.0, (obs[3]+obs[1])/2.0, np.pi/2.0, \
-							 (obs[3]-obs[1]), (obs[2]-obs[0])/2.0, idx)
+				AddLongShelf(f, obs[0], (obs[3]+obs[1])/2.0, np.pi/2.0, \
+							 (obs[3]-obs[1]), (obs[2]-obs[0])/1.0, idx) #obs[0]+(obs[2]-obs[0])/2.0, (obs[3]+obs[1])/2.0
 				'''
 				AddLongShelf(f, obs[0]+(obs[2]-obs[0])/4.0-1, (obs[3]+obs[1])/2.0, np.pi/2.0, \
 							 (obs[3]-obs[1])-0.1, (obs[2]-obs[0])/2.0-0.1, idx)
@@ -246,14 +246,14 @@ def CreateCustomMapWorld(filename, bounds, obstacles):
 		'''
 		for obs in obstacles:
 			if((obs[2]-obs[0]) > (obs[3]-obs[1])):
-				AddShelfState(f, (obs[2]+obs[0])/2.0, obs[1]+(obs[3]-obs[1])/2.0, 0.0, idx, scale=1.0)
+				AddShelfState(f, (obs[2]+obs[0])/2.0, obs[3], 0.0, idx, scale=1.0) #obs[1]+(obs[3]-obs[1])/2.0
 				'''
 				AddShelfState(f, (obs[2]+obs[0])/2.0-0.1, obs[1]+(obs[3]-obs[1])/4.0-1, 0.0, idx, scale=1.0)
 				idx += 1
 				AddShelfState(f, (obs[2]+obs[0])/2.0-0.1, obs[1]+(obs[3]-obs[1])/4.0-1, 0.0, idx, scale=1.0)
 				'''
 			else:
-				AddShelfState(f, obs[0]+(obs[2]-obs[0])/2.0, (obs[3]+obs[1])/2.0, np.pi/2.0, idx, scale=1.0)
+				AddShelfState(f, obs[0], (obs[1]+obs[3])/2.0, np.pi/2.0, idx, scale=1.0) #obs[0]+(obs[2]-obs[0])/2.0, (obs[3]+obs[1])/2.0
 				'''
 				AddShelfState(f, obs[0]+(obs[2]-obs[0])/4.0-1, (obs[3]+obs[1])/2.0-0.1, np.pi/2.0, idx, scale=1.0)
 				idx += 1

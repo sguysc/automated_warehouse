@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import numpy as np
 import matplotlib.pyplot as plt
 import math
@@ -19,9 +21,9 @@ from pydrake.solvers.mosek import MosekSolver
 # to solve the differential ricatti eqn
 from scipy.integrate import solve_ivp
 
-#CELL_SIZE = 1.25 # [m]  Jackal - gazebo, forklift
-#CELL_SIZE = 0.4 # [m]  Jackal - gazebo, forklift
-CELL_SIZE = 0.25 # [m]  Jackal - gazebo, forklift
+CELL_SIZE = 1.25 # [m]  Jackal - gazebo, forklift
+#CELL_SIZE = 0.40 # [m]  Jackal - gazebo, forklift
+#CELL_SIZE = 0.25 # [m]  Jackal - gazebo, forklift
 
 @TemplateSystem.define("DubinsCarPlant_")
 def DubinsCarPlant_(T):
@@ -44,9 +46,12 @@ def DubinsCarPlant_(T):
 			# three positions, no velocities
 			self.DeclareContinuousState(self.nX, 0, 0)
 
-			self.knotPoints = 5
+			self.knotPoints = 6
 			#self.knotPoints = 4
 			self.ex_knots = self.knotPoints
+			# when to start accepting optimization solutions (sometimes the improvement is small for some solution step
+			# and the process will quit, this way, I force it to try more steps)
+			self.min_iter = 10
 			
 			# parameters and limits from 
 			# "Tow tractor and Center rider Vehicle Limits Rev1.docx"
@@ -59,10 +64,15 @@ def DubinsCarPlant_(T):
 			self.CG_B   = 0.425 # Bumper to Drive Tire Center , for a 36inch length fork, dimension L in spec.
 			self.CG_F   = self.TotalL-self.CG_B # tire center to front, dimension B-L in spec.
 			#self.umax   = 2.6 * 1.6 * 1000.0 / 3600.0  # mph -> m/sec     5.0
-			self.umax   = umax #1.0  # jackal m/sec     5.0
+			if(umax > 0.0):
+				self.umax   = umax #1.0  # jackal m/sec     5.0
+				self.umin   = 0.0 
+			else:
+				self.umax   = 0.0 
+				self.umin   = umax #1.0  # jackal m/sec     5.0
 			self.delmax = delmax #80.0*math.pi/180.0  #rad   30.0 80
 			self.usat   = np.array([ [-self.delmax, self.delmax], \
-									 [ 0.0, self.umax] ]) 
+									 [ self.umin, self.umax] ]) 
 			#self.usat   = np.array([ [-self.delmax/1., self.delmax/1.], \
 			#			             [-self.umax/1.0, self.umax] ]) #0.0
 			# acceleration
@@ -139,9 +149,9 @@ def DubinsCarPlant_(T):
 			final_u_decision_var = dv[self.nX*N + self.nU*N - 1] #u[t_end]
 			# this causes problems with RealContinuousLyapunovEquation
 			#dircol.AddLinearEqualityConstraint(final_u_decision_var, 0.0) 
-			first_u_decision_var = dv[self.nX*N + 1 ] #u[t_0]
-			dircol.AddLinearEqualityConstraint(first_u_decision_var, 0.0)
-			first_u_decision_var = dv[self.nX*N + 0 ] #u[t_0]
+			first_u_decision_var = dv[self.nX*N + 1 ] #v(t=0) = 0 (u[t_0])
+			#dircol.AddLinearEqualityConstraint(first_u_decision_var, 0.0)
+			first_u_decision_var = dv[self.nX*N + 0 ] #delta(t=0)=0 (u[t_0])
 			dircol.AddLinearEqualityConstraint(first_u_decision_var, 0.0)
 			
 			# set some constraints on start and final pose
@@ -963,7 +973,7 @@ def DubinsCarPlant_(T):
 					#rhointegral = result.GetSolution(rhointegral).Evaluate()
 					rhointegral = ellipsoid_vol.Evaluate()
 					# stop if it starts going up (although it might happen and then recooperate) 
-					if( (rhointegral>prev_rhointegral and idx>10) or \
+					if( (rhointegral>prev_rhointegral and (idx>self.min_iter)) or \
 					    np.abs(rhointegral-prev_rhointegral)/rhointegral < 1.5E-3): # 0.1%
 						print('Rho integral converged')
 						need_to_break = True
@@ -1528,9 +1538,10 @@ def runFunnel():
 	#x0 = (0.0, 0.0, 0.0)
 	#xf = (0.0, 4.0, 180.0*math.pi/180.0)
 	x0 = (0.0, 0.0, 0.0)
-	xf = (0.0,  CELL_SIZE*3.,  180.0*math.pi/180.0)
+	#xf = (-CELL_SIZE, 0.0,  0.0*math.pi/180.0)
+	xf = (CELL_SIZE*2,  CELL_SIZE*2,  90.0*math.pi/180.0)
 	dist = np.linalg.norm(np.array(xf)-np.array(x0))
-	tf0 = dist/(plant.umax*0.8) # Guess for how long trajectory should take
+	tf0 = dist/(np.max(np.abs([plant.umin, plant.umax]))*0.8) # Guess for how long trajectory should take
 	#tf0 = 2.4
 	utraj, xtraj = plant.runDircol(x0, xf, tf0)
 	print('Trajectory takes %f[sec]' %(utraj.end_time()))
@@ -1578,8 +1589,8 @@ def runFunnel():
 	V, __ = plant.RegionOfAttraction(xtraj, utraj, debug=True, find_V=True) # True
 	#import pdb; pdb.set_trace()
 	fig1, ax1 = plt.subplots()
-	ax1.set_xlim([-5.0, 5.0])
-	ax1.set_ylim([-5.0, 5.0])
+	ax1.set_xlim([-CELL_SIZE*4., CELL_SIZE*4.])
+	ax1.set_ylim([-CELL_SIZE*4., CELL_SIZE*4.])
 	ax1.set_xlabel('x')
 	ax1.set_ylabel('y')
 	fig1.suptitle('Car: Funnel for trajectory')

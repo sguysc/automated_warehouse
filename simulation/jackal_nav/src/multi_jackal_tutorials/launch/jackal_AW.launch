@@ -29,8 +29,8 @@
     <arg name="use_move_base" value="true"/>
     <arg name="use_global_tf" value="false"/>
     <arg name="use_global_ekf" value="true"/>
-    <arg name="x"             value="1.219200"/>
-    <arg name="y"             value="-2.133600"/>
+    <arg name="x"             value="17.530000"/>
+    <arg name="y"             value="55.430000"/>
     <arg name="yaw"           value="1.570800"/>
   </include>
   <include file="$(find multi_jackal_base)/launch/jackal_base.launch">
@@ -40,9 +40,9 @@
     <arg name="use_move_base" value="true"/>
     <arg name="use_global_tf" value="false"/>
     <arg name="use_global_ekf" value="true"/>
-    <arg name="x"             value="-0.300000"/>
-    <arg name="y"             value="-2.250000"/>
-    <arg name="yaw"           value="3.141600"/>
+    <arg name="x"             value="72.115300"/>
+    <arg name="y"             value="30.687100"/>
+    <arg name="yaw"           value="1.570800"/>
   </include>
   
   <!-- View in RVIZ. -->

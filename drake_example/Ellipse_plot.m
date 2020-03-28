@@ -39,18 +39,18 @@ if nargin > 2
 end
 % check the dimension of the inputs: 2D or 3D
 %--------------------------------------------
-if length(C) == 3,
+if length(C) == 3
     Type = '3D';
-elseif length(C) == 2,
+elseif length(C) == 2
     Type = '2D';
 else
-    display('Cannot plot an ellipse with more than 3 dimensions!!');
+    disp('Cannot plot an ellipse with more than 3 dimensions!!');
     return
 end
 % "singular value decomposition" to extract the orientation and the
 % axes of the ellipsoid
-[U D V] = svd(A);
-if strcmp(Type, '2D'),
+[U, D, V] = svd(A);
+if strcmp(Type, '2D')
     % get the major and minor axes
     %------------------------------------
     a = 1/sqrt(D(1,1));
@@ -66,7 +66,7 @@ if strcmp(Type, '2D'),
     X(1,:) = X(1,:) + C(1);
     X(2,:) = X(2,:) + C(2);
     
-elseif strcmp(Type,'3D'),
+elseif strcmp(Type,'3D')
     % generate the ellipsoid at (0,0,0)
     %----------------------------------
     a = 1/sqrt(D(1,1));
@@ -79,8 +79,8 @@ elseif strcmp(Type,'3D'),
     XX = zeros(N+1,N+1);
     YY = zeros(N+1,N+1);
     ZZ = zeros(N+1,N+1);
-    for k = 1:length(X),
-        for j = 1:length(X),
+    for k = 1:length(X)
+        for j = 1:length(X)
             point = [X(k,j) Y(k,j) Z(k,j)]';
             P = V * point;
             XX(k,j) = P(1)+C(1);
@@ -93,7 +93,7 @@ end
 %----------------------------------------
 if strcmp(Type,'2D')
     % guy, to fit my axes ...
-    plot(X(2,:),X(1,:), 'Color', [.8 .8 .8]);
+    plot(X(2,:),X(1,:), 'Color', [.9 .9 .9]);
     hold on;
     %plot(C(2),C(1),'.k');
     pnts = X;

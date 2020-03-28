@@ -26,11 +26,13 @@ from shapely.geometry import Polygon, box, Point
 
 from StructuredSlugsParser import compiler as slugscomp
 
-MAP_KIND = 'lab' #'raymond'
+MAP_KIND = 'raymond'
+#MAP_KIND = 'lab' 
 # I commented this because it causes loading DubinsPlantCar which tries to load pydrake which is unavailable in the lab computer
 #from DubinsPlantCar import CELL_SIZE
-CELL_SIZE = 0.25 #[m]
-#CELL_SIZE = 1.25 #[m]
+#CELL_SIZE = 0.4 #[m]
+#CELL_SIZE = 0.4 #[m]
+CELL_SIZE = 1.25 #[m]
 
 import GeometryFunctions as gf_old
 import GeometryFunctions_fcl as gf
@@ -93,6 +95,7 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 	#pix2m  = W_Width/(bounds[3]-bounds[1])
 	bounds = bounds * pix2m
 	
+	#import pdb; pdb.set_trace()
 	# plot obstacles & total workable space
 	ax = plot_map(workspace, obs)
 		
@@ -108,8 +111,15 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 	for obstacle in obs:
 		v = pix2m * np.array(obstacle.exterior.bounds)
 		obstacles.append(v)
+	# GUY, TODO: because I don't prune u-turns with bound overlapping (lab settings will
+	# have no trajectory otherwise), this moves the walls a bit in the simulation
+	extend_bounds = bounds.copy()
+	extend_bounds[0] -= 0.0
+	extend_bounds[1] -= 0.0
+	extend_bounds[2] += 0.0
+	extend_bounds[3] += 0.0
 	# create the world map for gazebo simulation
-	RU.CreateCustomMapWorld(map_kind, bounds, obstacles)
+	RU.CreateCustomMapWorld(map_kind, extend_bounds, obstacles)
 	#import 	pdb; pdb.set_trace()
 	
 	if((force == False) and (glob.glob(map_kind + '.pickle'))):
@@ -133,7 +143,7 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 	wks_obs.append( box( bounds[0], bounds[3]    -FL_W/2.0, bounds[2], bounds[3]+0.1-FL_W/2.0 ) ) # right wall, account for width
 	wks_obs.append( box( bounds[0]-0.1+FL_W/2.0, bounds[1], bounds[0]    +FL_W/2.0, bounds[3] ) ) # top wall, account for width
 	wks_obs.append( box( bounds[2]    -FL_W/2.0, bounds[1], bounds[2]+0.1-FL_W/2.0, bounds[3] ) ) # bottom wall, account for width
-	# merged_obs_list.extend(wks_obs)
+	#merged_obs_list.extend(wks_obs)
 	
 	total_count = 0
 	G = nx.DiGraph(name='ConnectivityGraph')
@@ -156,9 +166,11 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 						toRot     = (mp['e'][2]-mp['s'][2]) / (90.0*math.pi/180.0)
 						toRot     = (orient+toRot)%4
 						connect2  = connect2/cell
-
+						
+						#if(x==3 and Y==13 and orient==3 and connect2[0][0]):
+						
 						# check if the funnel is not oriented with the one way direction
-						if(IsOneWayCompliant(x, y, orient, int(toRot), one_ways)):
+						if(IsOneWayCompliant(x, y, orient, int(toRot), toLoc, one_ways)):
 							# check if funnel is in bounds and does not collide with any obstacle
 							if(IsPathFree(mp, merged_obs_list, rotmat, orient, x, y, toLoc[0], toLoc[1], \
 										  X[0], X[-1], Y[0], Y[-1], ax )):
@@ -178,7 +190,9 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 				pbar.update(nY)
 		plt.pause(0.05)
 		print(' ')
-		
+	
+	#import pdb; pdb.set_trace()
+
 	print(nx.info(G))
 	# save time for next time
 	SaveGraphToFile(G, map_kind)
@@ -247,13 +261,25 @@ def IsPathFree(mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, 
 			
 	return True
 
-def IsOneWayCompliant(x, y, orient, toRot, one_ways):
+def IsOneWayCompliant(x, y, orient, toRot, toLoc, one_ways):
 	#import pdb; pdb.set_trace()
 	pnt = Point(x, y)
+	# check the end position. is it in the restricted zone
+	pnt2 = Point(toLoc[0][0], toLoc[1][0])
 	for key, regions in enumerate(one_ways):
 		for idx, region in enumerate(regions):
-			if(region.contains(pnt)):
+			start_in = region.contains(pnt)
+			end_in = region.contains(pnt2)
+			if(start_in == True and end_in == True):
+				if(orient != key or toRot != key):
+					return False
+			if(start_in == True and end_in == False):
 				if(orient != key):
+					return False
+			#if(start_in == False and end_in == True):
+			#	if(toRot != key):
+			#		return False
+			#if((region.contains(pnt) and orient != key) or (region.contains(pnt2) and toRot != key)):
 					#print('x=%f\ty=%f in one-way %d' %(x,y,idx))
 					# or (toRot != key)
 					# not starting with right orientation or not ending with one.
@@ -261,7 +287,7 @@ def IsOneWayCompliant(x, y, orient, toRot, one_ways):
 					# might loose funnels the are exiting the one-way isle. on the
 					# other hand, inside the isle, those funnels will lead to nowhere else
 					# so we're ok.
-					return False
+					#return False
 	return True
 
 # this will be loading coordinates of a map from a file in the future
@@ -273,9 +299,13 @@ def ReplicateMap(map_kind = 'none'):
 	
 	tic = timer()
 	
-	with open(map_kind + '.specification', 'r') as spec_file:
-		spec = json.load(spec_file)
-	
+	try:
+		with open(map_kind + '.specification', 'r') as spec_file:
+			spec = json.load(spec_file)
+	except:
+		print('Specification %s file has syntax error.' %(map_kind))
+		raise
+		
 	workspace = box(*spec['workspace'])
 	obstacles = spec["obstacles"]
 	no_entrance = spec["no_entrance"]
@@ -886,6 +916,7 @@ def CheckRealizeability(robots_num, filename='map_funnel'):
 	controllers = []
 	slugsLink = '/home/cornell/Tools/slugs_ltl_stack/src/slugs'
 	realizable = True
+	robot_fail_number = -1
 	#import pdb; pdb.set_trace()
 	print('Starting to check realizeability. This might take some time ...')
 	for r in range(robots_num):
@@ -907,9 +938,11 @@ def CheckRealizeability(robots_num, filename='map_funnel'):
 			# exit if synthesis is done and ready for execution
 			if "error" in stderr.lower():
 				realizable = False
+				robot_fail_number = r
 				break
 			elif "unrealizable" in stderr:
 				realizable = False
+				robot_fail_number = r
 				break
 			elif "realizable" in stderr:
 				break
@@ -921,7 +954,7 @@ def CheckRealizeability(robots_num, filename='map_funnel'):
 	if(realizable):
 		print('All specifications are realizeable.\nHURRAY!')
 	else:
-		print('Robot%d specification is not realizeable or error occured with its spec.' %r)
+		print('Robot%d specification is not realizeable or error occured with its spec.' %robot_fail_number)
 	return realizable
 
 # get a complete synthesized controller for our spec.
@@ -1118,7 +1151,7 @@ if __name__ == "__main__":
 		path = FindPathBetweenGoals(DiGraph, np.array(goals[i]) )
 		plot_path(ax, DiGraph, path, MP, float(i)/float(robots_num))
 	plt.pause(0.05)
-	
+	#import pdb; pdb.set_trace()
 	# create the amount of jackals you want
 	robots_ic = []
 	for i in range(robots_num):

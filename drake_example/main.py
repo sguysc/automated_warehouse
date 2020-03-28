@@ -37,10 +37,11 @@ from tf2_geometry_msgs import do_transform_vector3
 
 ROBOT_TYPE = 'JACKAL'  # original JACKAL run with 'roslaunch jackal_gazebo jackal_world.launch'
 #ROBOT_TYPE = 'TURTLEBOT'
-#MAP    = 'raymond'
-MAP    = 'lab'
+MAP    = 'raymond'
+#MAP    = 'lab'
 umax   = 0.3 #1.0  # jackal m/sec     5.0
 delmax = 45.0*np.pi/180.0  # jackal rad   30.0 80
+MEAS_FS = 100 #100 for gazebo, not sure about vicon/optitrack
 
 SLUGS_DIR = '/home/cornell/Tools/slugs_ltl_stack/src/slugs'
 MAP_FILE = MAP + '.map'
@@ -55,7 +56,7 @@ CALIB_ANGLE_THETA = 0.0 #I've changed the angle in the optitrack software-0.16 #
 
 # class to handle a single robot comm.
 class Jackal:
-	def __init__(self, idx, total_robots, map_file=MAP_FILE, aut_file=SYNTH_AUTOMATA_FILE, \
+	def __init__(self, idx, total_robots, list_obs, map_file=MAP_FILE, aut_file=SYNTH_AUTOMATA_FILE, \
 				                          mp_file=MP_MAP_FILE, l2b_file=LABEL2BIT_FILE):
 		global CALIB_ANGLE_THETA
 		
@@ -67,6 +68,7 @@ class Jackal:
 		self.pose   = np.array([0.0, 0.0, 0.0*np.pi/2.0]) #None
 		self.other_robots_arr = np.setdiff1d(np.arange(0,self.total_robots),[self.idx]) # everything but ego
 		self.others_pose = {} #np.zeros((total_robots-1,3)) # in index 0 will be the first robot that is not ego
+		self.list_obs = list_obs
 		self.linvel = None
 		self.rotvel = None
 		self.last_linvel = None
@@ -130,6 +132,7 @@ class Jackal:
 		self.funnel_sensors = dict(zip(range(self.slugs._Nsens), [False]*self.slugs._Nsens))		
 		
 		# use this break point as a synchronizer between multiple runs
+		print('Press c to start ...')
 		import pdb; pdb.set_trace()
 
 		#self.states, self.actions = GetSpecificControl(self.automata, self.map_bit_2_label, debug=False)
@@ -138,7 +141,7 @@ class Jackal:
 		logger_state.debug('%d;%s;%d' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
 		#import pdb; pdb.set_trace()
 		# now, get the new next state
-		if(self.action == 9):
+		if(self.action == self.STAY_IN_PLACE):
 			print('oh no, R%d starts with action stay in place' %(self.idx))
 			self.next_state =  self.curr_state
 			self.do_calc = False
@@ -154,7 +157,7 @@ class Jackal:
 
 		#self.N_state  = len(self.states)
 		self.N_ellipse = len(self.mps[self.action]['V'])
-		self.curr_ell  = self.FindNextValidEllipse()
+		self.curr_ell  = self.FindNextValidEllipse(self.action)
 		self.K         = self.mps[self.action]['K'][self.curr_ell]
 		self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][self.curr_ell], \
 										self.map_bit_2_label[self.curr_state])
@@ -177,7 +180,8 @@ class Jackal:
 			CALIB_ANGLE_THETA = 0.0 # don't apply this to simulation mode
 			for i in self.other_robots_arr:
 				self.others_pose.update({i: np.zeros(3)}) # add a dictionary slot for every one
-			self.others_pose.update({-1: np.zeros(3)}) # add a dictionary slot for any obstacle
+			for obs in self.list_obs:
+				self.others_pose.update({obs: np.zeros(3)}) # add a dictionary slot for any obstacle
 		else:
 			#self.control_pub  = rospy.Publisher('/jackal_velocity_controller/cmd_vel', Twist, queue_size=1) #Jackal
 			self.control_pub  = rospy.Publisher('/cmd_vel', Twist, queue_size=1) #Jackal
@@ -188,8 +192,9 @@ class Jackal:
 				self.others_pose.update({i: np.zeros(3)}) # add a dictionary slot for every one
 				# send the extra parameter of which one are you
 				self.other_sensors_sub.append(rospy.Subscriber("/mocap_node/Jackal%d/pose" %(i+1), PoseStamped, self.other_meas_cb, i))
-			self.others_pose.update({-1: np.zeros(3)}) # add a dictionary slot for any obstacle
-			self.other_sensors_sub.append(rospy.Subscriber("/mocap_node/Whatever/pose" %(i+1), PoseStamped, self.other_meas_cb, -1))
+			for obs in self.list_obs:
+				self.others_pose.update({i: np.zeros(3)}) # add a dictionary slot for any obstacle
+				self.other_sensors_sub.append(rospy.Subscriber("/mocap_node/%s/pose" %(obs), PoseStamped, self.other_meas_cb, obs))
 			
 			self.sensors2_sub = rospy.Subscriber("/imu/data", Imu, self.imu_cb)
 			self.sensors3_sub = rospy.Subscriber("/jackal_velocity_controller/odom", Odometry, self.odom_cb)
@@ -203,6 +208,8 @@ class Jackal:
 		self.control(self.K, self.xinterp, self.uinterp, do_calc=False) #send a 0 for the first time!
 
 		self.timer = -1E6
+		self.funnel_timer = 0.0
+		self.disable_debug = True #False
 		self.r = rospy.Rate(self.Fs)
 
 
@@ -242,6 +249,16 @@ class Jackal:
 				Qother    = msg.pose[i].orientation
 				anglesother = euler_from_quaternion([Qother.x, Qother.y, Qother.z, Qother.w])
 				self.others_pose[j] = np.array([poseother.x, poseother.y, anglesother[2]])
+			# get location of other obstacles
+			for obs in self.list_obs:
+				try:
+					i      = msg.name.index(obs) 
+					poseother = msg.pose[i].position
+					Qother    = msg.pose[i].orientation
+					anglesother = euler_from_quaternion([Qother.x, Qother.y, Qother.z, Qother.w])
+					self.others_pose[obs] = np.array([poseother.x, poseother.y, anglesother[2]])
+				except:
+					self.others_pose[obs] = np.array([-1000., -1000., 0.0])
 		else:
 			#import pdb; pdb.set_trace()
 			pose   = msg.pose.position
@@ -330,52 +347,53 @@ class Jackal:
 			# is self.STAY_IN_PLACE, keep polling until it's unstuck. if we stopped in the middle, check until you have
 			# a different action to take
 			if(self.do_calc == False or self.action == self.STAY_IN_PLACE):
-				# change the funnel in slugs (setpos) to the actual location it is currently at
-				# to get a better chance to get a new route
-				print('in a stopped situation')
-				self.curr_state = self.GetClosestNode(self.pose)
-				print('R%d is now in %s (%d), checking sensors again ' %(self.idx, self.map_bit_2_label[self.curr_state], \
-																				self.curr_state))
-				self.funnel_sensors = self.SenseEnvironment() # sensing might be different now because we might be far from first ellipse
-				# reset the position in slugs
-				self.curr_state, self.action = self.slugs.SetInitialPos(self.curr_state, self.funnel_sensors)
-				self.curr_ell = self.FindNextValidEllipse()
-				# extension to the telemetry file
-				#self.states_fid.write('%d;%s;%d\n' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
-				logger_state.debug('%d;%s;%d' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
-				# get how many points are in this new motion primitive
-				self.N_ellipse = len(self.mps[ self.action]['V'])
-				# update all the new motion parameters
-				self.K     = self.mps[self.action]['K'][self.curr_ell]
-				self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][self.curr_ell], \
-											self.map_bit_2_label[self.curr_state])
-				self.u_ref = self.mps[self.action]['unom'][self.curr_ell]
-				self.x_ref_hires = self.mps[ self.action]['xtraj']
-				self.u_ref_hires = self.mps[ self.action]['utraj']
-				self.timer = self.msg_num
-				if(self.action != self.STAY_IN_PLACE):
-					# now, get the new next state
-					for key, val in self.G[self.map_bit_2_label[self.curr_state]].items():
-						if( val['motion'] == self.action):
-							self.next_state = self.map_label_2_bit[key]
-							break
-					# sensing what happens in the future funnel
-					next_funnel_sensors = self.SenseEnvironment(funnel=self.map_bit_2_label[self.next_state]) 
-					self.next_state, self.next_action = \
-							self.slugs.FindNextStep(self.next_state, next_funnel_sensors)
-					self.do_calc = True
-					print(self.colorize('GREEN', 'R%d is re-routing with action=%d ...' %(self.idx, self.action)) )
-					if(self.next_action==self.STAY_IN_PLACE):
-					# we're stuck for now, check again later
-						print(self.colorize('YELLOW', 'oh no, R%d got \'stay in place\' for next action (%d)' %(self.idx, \
-																											   self.STAY_IN_PLACE)) )
-				else:
-					# it's still in do not calculate new controls
-					print(self.colorize('RED', 'R%d is still getting stay in place action ...' %self.idx) )
+				#just a way to reduce the frequency that we call setinitialpos from slugs interface
+				if((self.msg_num % MEAS_FS) <= 10):
+					# change the funnel in slugs (setpos) to the actual location it is currently at
+					# to get a better chance to get a new route
+					self.curr_state = self.GetClosestNode(self.pose)
+					print('in a stopped situation: R%d is now in %s (%d), checking sensors again ' %(self.idx, self.map_bit_2_label[self.curr_state], \
+																					self.curr_state))
+					self.funnel_sensors = self.SenseEnvironment() # sensing might be different now because we might be far from first ellipse
+					# reset the position in slugs
+					self.curr_state, self.action = self.slugs.SetInitialPos(self.curr_state, self.funnel_sensors)
+					self.curr_ell = self.FindNextValidEllipse(self.action)
+					# extension to the telemetry file
+					#self.states_fid.write('%d;%s;%d\n' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
+					logger_state.debug('%d;%s;%d' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
+					# get how many points are in this new motion primitive
+					self.N_ellipse = len(self.mps[ self.action]['V'])
+					# update all the new motion parameters
+					self.K     = self.mps[self.action]['K'][self.curr_ell]
+					self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][self.curr_ell], \
+												self.map_bit_2_label[self.curr_state])
+					self.u_ref = self.mps[self.action]['unom'][self.curr_ell]
+					self.x_ref_hires = self.mps[ self.action]['xtraj']
+					self.u_ref_hires = self.mps[ self.action]['utraj']
+					self.timer = self.msg_num
+					if(self.action != self.STAY_IN_PLACE):
+						# now, get the new next state
+						for key, val in self.G[self.map_bit_2_label[self.curr_state]].items():
+							if( val['motion'] == self.action):
+								self.next_state = self.map_label_2_bit[key]
+								break
+						# sensing what happens in the future funnel
+						next_funnel_sensors = self.SenseEnvironment(funnel=self.map_bit_2_label[self.next_state]) 
+						self.next_state, self.next_action = \
+								self.slugs.FindNextStep(self.next_state, next_funnel_sensors)
+						self.do_calc = True
+						print(self.colorize('GREEN', 'R%d is re-routing with action=%d ...' %(self.idx, self.action)) )
+						if(self.next_action==self.STAY_IN_PLACE):
+						# we're stuck for now, check again later
+							print(self.colorize('YELLOW', 'oh no, R%d got \'stay in place\' for next action (%d)' %(self.idx, \
+																												   self.STAY_IN_PLACE)) )
+					else:
+						# it's still in do not calculate new controls
+						print(self.colorize('RED', 'R%d is still getting stay in place action ...' %self.idx) )
 			elif(self.next_action == self.STAY_IN_PLACE):
-				if(self.msg_num - self.timer > 10):
-					# if we still don't have any progress after 10*1/10 seconds, then try resetting with action=self.STAY_IN_PLACE
-					# this will force a search for a new route right now
+				if(self.msg_num - self.timer > 1*MEAS_FS):
+					# if we still don't have any progress after 10*1/100 seconds (msg_num is in gazebo's framerate), then try resetting with 
+					# action=self.STAY_IN_PLACE. this will force a search for a new route right now
 					self.do_calc = False #self.action = self.STAY_IN_PLACE
 				else:
 					# sensing what happens in the future funnel (as if robot is now there)
@@ -387,7 +405,8 @@ class Jackal:
 						print(self.colorize('GREEN', 'R%d got a good (next) action now ...' %self.idx))
 					else:
 						print(self.colorize('YELLOW', 'R%d is still getting stay in place (but we\'re not there yet) ...' %self.idx) )
-			elif (self.CheckFunnelCompletion(self.map_bit_2_label[self.next_state], self.next_action) == True):
+			elif (self.CheckInNextFunnel(self.map_bit_2_label[self.next_state], self.next_action) == True):
+				self.funnel_timer = self.msg_num
 				#rospy.loginfo
 				print('R%d reached funnel %d (%s) with action %d' \
 							  %(self.idx, self.next_state, self.map_bit_2_label[self.next_state], self.action))
@@ -397,7 +416,7 @@ class Jackal:
 				# sometimes the first ellipse has zero speed and it causes trouble. skip ellipses ahead
 				# it's fine because if it doesn't have controls, then it is also at the same place as first ellipse.
 				# this is usually only one ellipse. Maybe should take care of it when creating the funnels or
-				self.curr_ell = self.FindNextValidEllipse()
+				self.curr_ell = self.FindNextValidEllipse(self.next_action)
 				self.action = self.next_action
 				if(self.action == self.STAY_IN_PLACE):
 					self.do_calc = False # now, stop in place
@@ -428,6 +447,16 @@ class Jackal:
 					#self.do_calc = False
 					print(self.colorize('YELLOW', 'oh no, R%d got \'stay in place\' for next action (%d)' %(self.idx,self.STAY_IN_PLACE)) )
 
+			# GUY TODO, remove when done with debugging
+			if((self.msg_num - self.funnel_timer > 15*MEAS_FS) and (self.disable_debug == False)):
+				print(self.map_bit_2_label[self.next_state])
+				print(self.next_action)
+				print(self.pose)
+				find_non_zero = self.FindNextValidEllipse(self.next_action)
+				S, ellipse_pose = self.GetCoordAndEllipseFromLabel(self.map_bit_2_label[self.next_state], self.next_action, find_non_zero)
+				print( self.InEllipse(S, ellipse_pose, pose=self.pose) )
+				import pdb; pdb.set_trace() 
+			
 			# output the telemetry to file
 			self.telemetry()
 			self.r.sleep()
@@ -480,7 +509,7 @@ class Jackal:
 						if(overlaps == True):
 							funnel_sensors[mp_i] = True
 							if(self.action == mp_i):
-								# do less priniting on screen
+								# do less printing on screen
 								print('Robot #%d caused funnel %d to be blocked (ellipse %d)' %(r, mp_i, S_i))
 							#import pdb; pdb.set_trace()
 							break
@@ -488,6 +517,23 @@ class Jackal:
 					if(funnel_sensors[mp_i] == True):
 						break
 					# next, check obstacles
+					for obs in self.list_obs:
+						adv_pose = self.others_pose[obs]
+						# GUY TODO, obviously there should be some method to estimate the width&length of the obstacle
+						# meanwhile, assume the obs is a person and it has got same dim. as the jackal
+						box_approx_of_robot  = gf.Rectangle(adv_pose[:2], FL_L*2.0, FL_L*2.0)
+						overlaps = gf.TestIntersectionRectangleEllipse(box_approx_of_robot, e)
+						if(overlaps == True):
+							funnel_sensors[mp_i] = True
+							if(self.action == mp_i):
+								# do less printing on screen, only if it is blocking us
+								print('%s caused funnel %d to be blocked (ellipse %d)' %(obs, mp_i, S_i))
+							#import pdb; pdb.set_trace()
+							break
+					#means something already occupied it so no need to check other things as well
+					if(funnel_sensors[mp_i] == True):
+						break
+						
 			toc = timer()
 			self._sensing_function_time = toc-tic
 			return funnel_sensors
@@ -586,12 +632,13 @@ class Jackal:
 		return (ret<=1)
 
 	# sometimes the first ellipse has zero speed and it causes trouble. skip ellipses ahead
-	def FindNextValidEllipse(self):
+	def FindNextValidEllipse(self, action):
 		find_non_zero = 0
+		N_tot_ellipses = len(self.mps[action]['V']) # because it could also be not the action we currently take
 		while True:
-			if(np.linalg.norm(self.mps[self.action]['unom'][find_non_zero]) < 0.01):
+			if(np.linalg.norm(self.mps[action]['unom'][find_non_zero]) < 0.01):
 				find_non_zero += 1
-				if(find_non_zero == self.N_ellipse):
+				if(find_non_zero == N_tot_ellipses):
 					break
 			else:
 				break
@@ -608,9 +655,9 @@ class Jackal:
 		return False
 
 	# check if the pose of robot is in the next funnel
-	def CheckFunnelCompletion(self, funnel, action):
+	def CheckInNextFunnel(self, funnel, action):
 		# see if we are at the first ellipse of the new funnel
-		find_non_zero = self.FindNextValidEllipse()
+		find_non_zero = self.FindNextValidEllipse(action)
 		# check if we are in the ellipse
 		return self.CheckEllipseCompletion(funnel, action, find_non_zero)
 
@@ -734,8 +781,8 @@ class Jackal:
 			#saturations
 			if(u[1] > umax):
 				u[1] = umax
-			if(u[1] < 0):
-				u[1] = 0.0
+			if(u[1] < -umax):
+				u[1] = -umax
 			if(u[0] > delmax):
 				u[0] = delmax
 			if(u[0] < -delmax):
@@ -767,7 +814,7 @@ class Jackal:
 		#V,W = self.LimitCmds(u[1], u[1] / self.L * np.tan(u[0]))
 		#self.u = np.array([W,V])
 		#t.angular.z = W
-		t.angular.z = 0.5/0.3 * u[1] / self.L * np.tan(u[0]) # delta; 1.0/umax is a gain to compensate 1.0/umax *
+		t.angular.z = 0.9*0.5/0.3 * u[1] / self.L * np.tan(u[0]) # delta; 1.0/umax is a gain to compensate 1.0/umax *
 		# the fact that I am running in less than 1.0m/s in the lab
 		#t.linear.x  = V #u[1] # V
 		t.linear.x  = u[1] # V
@@ -796,9 +843,12 @@ if __name__ == '__main__':
 					help='an integer for the robot number (index)')
 	parser.add_argument('--n', type=int, default=1,
 					help='an integer for total amount of robots on the field')
+	parser.add_argument('--obs', type=str, default='',
+					help='names of other obstacles, comma separated, must have ROS messages (gazebo or on the field)')
 	args = parser.parse_args()
 	print('Controller for Jackal%d' %args.i)
-
+	list_obs = args.obs.split(',')
+	#import pdb; pdb.set_trace()
 	# Create a custom logger
 	timenow     = localtime()
 	log_file    = strftime('telemetry_%Y_%m_%d_%H_%M_%S', timenow)
@@ -822,7 +872,7 @@ if __name__ == '__main__':
 				'xr;yr;zr;delr;ur')
 
 	rospy.init_node('run_jackal_%d' %args.i)#, log_level=rospy.DEBUG)
-	J = Jackal(args.i, args.n)
+	J = Jackal(args.i, args.n, list_obs)
 
 	try:
 		#rospy.spin()

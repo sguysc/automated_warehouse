@@ -164,7 +164,9 @@ plot(traj(:,2), traj(:,1), 'kd', 'MarkerSize', 16);
 for i=1:length(path)
     text(traj(i,2), traj(i,1), path{i})
 end
-
+% GUY TODO, inflate bounds just because I'm not considering that
+% to be out-of-bounds because lab is too small
+%bounds = [bounds(1)-.7 bounds(2)-.7 bounds(3)+.7 bounds(4)+.7 ];
 for i=1:size(bounds,1)
     plot([bounds(i,2) bounds(i,2)], -[-bounds(i,1) -bounds(i,3)], 'k', 'LineWidth',3);
     plot([bounds(i,2) bounds(i,4)], -[-bounds(i,1) -bounds(i,1)], 'k', 'LineWidth',3);
@@ -245,24 +247,56 @@ for r = 1:num_robots
 end
 
 for i=1:size(one_ways_N,1)
+    v1 = [one_ways_N(i,2) one_ways_N(i,1); ...
+          one_ways_N(i,4)  one_ways_N(i,1); ...
+          one_ways_N(i,4)  one_ways_N(i,3); ...
+          one_ways_N(i,2)  one_ways_N(i,3)];
+
+    f1 = [1 2 3 4];
+    patch('Faces',f1,'Vertices',v1,'FaceColor', 'yellow', 'FaceAlpha',.3);
+
     p1 = [(one_ways_N(i,2)+one_ways_N(i,4))/2 one_ways_N(i,3)];                         % First Point
     p2 = [(one_ways_N(i,2)+one_ways_N(i,4))/2 one_ways_N(i,1)];                         % Second Point
     dp = p2-p1;                         % Difference
     quiver(p1(1),p1(2),dp(1),1.0*dp(2),0.0, 'Color', [0.7, 0.7, 0.9], 'LineWidth',2)
 end
 for i=1:size(one_ways_S,1)
+    v1 = [one_ways_S(i,2) one_ways_S(i,1); ...
+          one_ways_S(i,4)  one_ways_S(i,1); ...
+          one_ways_S(i,4)  one_ways_S(i,3); ...
+          one_ways_S(i,2)  one_ways_S(i,3)];
+
+    f1 = [1 2 3 4];
+    patch('Faces',f1,'Vertices',v1,'FaceColor', 'yellow', 'FaceAlpha',.3);
+
     p1 = [(one_ways_S(i,2)+one_ways_S(i,4))/2 one_ways_S(i,1)];                         % First Point
     p2 = [(one_ways_S(i,2)+one_ways_S(i,4))/2 one_ways_S(i,3)];                         % Second Point
     dp = p2-p1;                         % Difference
     quiver(p1(1),p1(2),dp(1),1.00*dp(2),0.0, 'Color', [0.7, 0.7, 0.9], 'LineWidth',2)
 end
 for i=1:size(one_ways_E,1)
+    v1 = [one_ways_E(i,2) one_ways_E(i,1); ...
+          one_ways_E(i,4)  one_ways_E(i,1); ...
+          one_ways_E(i,4)  one_ways_E(i,3); ...
+          one_ways_E(i,2)  one_ways_E(i,3)];
+
+    f1 = [1 2 3 4];
+    patch('Faces',f1,'Vertices',v1,'FaceColor', 'yellow', 'FaceAlpha',.3);
+
     p1 = [one_ways_E(i,2) (one_ways_E(i,1)+one_ways_E(i,3))/2];                         % First Point
     p2 = [one_ways_E(i,4) (one_ways_E(i,1)+one_ways_E(i,3))/2];                         % Second Point
     dp = p2-p1;                         % Difference
     quiver(p1(1),p1(2),1.00*dp(1),dp(2),0.0, 'Color', [0.7, 0.7, 0.9], 'LineWidth',2)
 end
 for i=1:size(one_ways_W,1)
+    v1 = [one_ways_W(i,2) one_ways_W(i,1); ...
+          one_ways_W(i,4)  one_ways_W(i,1); ...
+          one_ways_W(i,4)  one_ways_W(i,3); ...
+          one_ways_W(i,2)  one_ways_W(i,3)];
+
+    f1 = [1 2 3 4];
+    patch('Faces',f1,'Vertices',v1,'FaceColor', 'yellow', 'FaceAlpha',.3);
+
     p1 = [one_ways_W(i,4) (one_ways_W(i,1)+one_ways_W(i,3))/2];                         % First Point
     p2 = [one_ways_W(i,2) (one_ways_W(i,1)+one_ways_W(i,3))/2];                         % Second Point
     dp = p2-p1;                         % Difference
@@ -290,6 +324,7 @@ title('pose'); clickableLegend('xknot', 'yknot', '\thetaknot', 'xref', 'yref', '
 h(2)=subplot(212);
 plot(t, [state, ellipse, action]); clickableLegend('state', 'ellipse', 'motion')
 linkaxes(h,'x');
+xlabel({'t [sec]', strrep(file,'_','\_')}); 
 
 figure;
 ang_diff = mod(x(:,3)-x_ref_new(:,3) + 180, 360) - 180;
@@ -297,6 +332,7 @@ plot(t, [x(:,1)-x_ref_new(:,1), ...
                   x(:,2)-x_ref_new(:,2), ...
                   ang_diff ]); %x(:,3)-x_ref_new(:,3) ]); 
 clickableLegend('e_x', 'e_y', 'e_\theta')
+xlabel({'t [sec]', strrep(file,'_','\_')}); ylabel('erros [\Deltam,\Deltadeg]');
 
 figure;
 plot(t, [u_ref(:,1), u_ref(:,2)]); hold all
@@ -305,5 +341,5 @@ plot(t, [u(:,1), u(:,2), u(:,2)/(0.42*1).*tan(u(:,1))]); hold all
 plot(t, [linvel(:,1) rotvel(:,3)]);
 clickableLegend('\delta_k_n_o_t','u_k_n_o_t', '\delta_r_e_f','u_r_e_f', ...
     '\delta_s_i_m','u_s_i_m', '\omega_s_i_m', 'u_m_e_a_s','\omega_m_e_a_s');
-
+xlabel({'t [sec]', strrep(file,'_','\_')}); 
 

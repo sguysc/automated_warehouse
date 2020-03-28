@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import numpy as np
 import matplotlib.pyplot as plt
 import math
@@ -28,20 +30,77 @@ def CreateFunnels():
 	print('******\nCreating Motion primitives (Funnel algorithm) ...\n******')
 	
 	# (x,y,theta)
-	# Jackal - Lab cell 0.25[m], umax=0.5, delmax=45
+	# Jackal - Lab cell 0.4[m], , umax=0.5, delmax=45, w/ backwards, removed 2 steps forward
+	umax = 0.5
 	MotionPrimitives = { \
-			0: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4.,  0.00,  0.0), 'kp': 8, 'ex_kp': 8, 'traj': None}, \
-			1: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2.,  0.00,  0.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
-			2: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*1.,  0.00,  0.0), 'kp': 3, 'ex_kp': 3, 'traj': None}, \
-			3: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4.,  CELL_SIZE,  0.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
-			4: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4., -CELL_SIZE,  0.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
-			5: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2.,  CELL_SIZE*3.,  90.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
-			6: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2., -CELL_SIZE*3., -90.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
-			7: {'s': (0.0, 0.0, 0.0), 'e': (0.00,  CELL_SIZE*4.,  180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion }, \
-			8: {'s': (0.0, 0.0, 0.0), 'e': (0.00, -CELL_SIZE*4., -180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion }, \
+			0: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4,  0.00,  0.0), 'kp': 12, 'ex_kp': 12, 'traj': None, 'iter': 5}, \
+			1: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*1,  0.00,  0.0), 'kp': 6, 'ex_kp': 6, 'traj': None, 'iter': 5}, \
+			2: {'s': (0.0, 0.0, 0.0), 'e': (-CELL_SIZE*1,  0.00,  0.0), 'kp': 6, 'ex_kp': 6, 'traj': None, 'iter': 5}, \
+			3: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*3,  CELL_SIZE*1,  0.0*math.pi/180.0), 'kp': 7, 'ex_kp': 7, 'traj': None}, \
+			4: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*3, -CELL_SIZE*1,  0.0*math.pi/180.0), 'kp': 6, 'ex_kp': 7, 'traj': None}, \
+			5: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2,  CELL_SIZE*2,  90.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': None, 'iter': 10}, \
+			6: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2, -CELL_SIZE*2, -90.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': None, 'iter': 10}, \
+			7: {'s': (0.0, 0.0, 0.0), 'e': (0.00,  CELL_SIZE*2,  180.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': uturn_motion, 'iter': 3 }, \
+			8: {'s': (0.0, 0.0, 0.0), 'e': (0.00, -CELL_SIZE*2, -180.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': uturn_motion, 'iter': 3 }, \
 	}
 	'''
+	# Jackal - Lab cell 0.4[m], , umax=0.5, delmax=45, w/ backwards, removed 2 steps forward
+	umax = 0.5
+	MotionPrimitives = { \
+			0: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*3,  0.00,  0.0), 'kp': 5, 'ex_kp': 5, 'traj': None, 'iter': 6}, \
+			1: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*1,  0.00,  0.0), 'kp': 3, 'ex_kp': 3, 'traj': None, 'iter': 6}, \
+			2: {'s': (0.0, 0.0, 0.0), 'e': (-CELL_SIZE*1,  0.00,  0.0), 'kp': 3, 'ex_kp': 3, 'traj': None, 'iter': 6}, \
+			3: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*3,  CELL_SIZE*1,  0.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': None}, \
+			4: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*3, -CELL_SIZE*1,  0.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': None}, \
+			5: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2,  CELL_SIZE*2,  90.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
+			6: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2, -CELL_SIZE*2, -90.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
+			#6: {'s': (0.0, 0.0, 0.0), 'e': (0.00,  CELL_SIZE*3,  180.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': uturn_motion }, \
+			# here we have a case where the jackal cannot get a trajectory to exactly 3*cell, but it doesn't matter because
+			# the last ellipse is incorporated within the entire cell size
+			7: {'s': (0.0, 0.0, 0.0), 'e': (0.00,  CELL_SIZE*3.075,  180.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': uturn_motion }, \
+			#7: {'s': (0.0, 0.0, 0.0), 'e': (0.00, -CELL_SIZE*3, -180.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': uturn_motion }, \
+			8: {'s': (0.0, 0.0, 0.0), 'e': (0.00, -CELL_SIZE*3.075, -180.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': uturn_motion }, \
+	}
+	'''
+	'''
+	# Jackal - Lab cell 0.25[m], umax=0.5, delmax=45, backwards motion, removed 2,3 steps forward
+	umax = 0.5
+	MotionPrimitives = { \
+			0: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*1.,  0.00,  0.0), 'kp': 3, 'ex_kp': 3, 'traj': None}, \
+			1: {'s': (0.0, 0.0, 0.0), 'e': (-CELL_SIZE*1.,  0.00,  0.0), 'kp': 3, 'ex_kp': 3, 'traj': None}, \
+			2: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4.,  CELL_SIZE,  0.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
+			3: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4., -CELL_SIZE,  0.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
+			4: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2.,  CELL_SIZE*3.,  90.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
+			5: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2., -CELL_SIZE*3., -90.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
+			6: {'s': (0.0, 0.0, 0.0), 'e': (0.00,  CELL_SIZE*4.,  180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion }, \
+			7: {'s': (0.0, 0.0, 0.0), 'e': (0.00, -CELL_SIZE*4., -180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion }, \
+	}
+	'''
+	'''
+	# Jackal - Lab cell 0.25[m], umax=0.5, delmax=45
+	umax = 0.5
+	MotionPrimitives = { \
+			#0: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4.,  0.00,  0.0), 'kp': 8, 'ex_kp': 8, 'traj': None, 'iter': 15}, \
+			#1: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2.,  0.00,  0.0), 'kp': 4, 'ex_kp': 4, 'traj': None, 'iter': 15}, \
+			#2: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*1.,  0.00,  0.0), 'kp': 3, 'ex_kp': 3, 'traj': None, 'iter': 15}, \
+			#3: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4.,  CELL_SIZE,  0.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None, 'iter': 43}, \
+			#4: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4., -CELL_SIZE,  0.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None, 'iter': 43}, \
+			#5: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2.,  CELL_SIZE*3.,  90.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None, 'iter': 70}, \
+			#6: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2., -CELL_SIZE*3., -90.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None, 'iter': 70}, \
+			#7: {'s': (0.0, 0.0, 0.0), 'e': (0.00,  CELL_SIZE*4.,  180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion, 'iter': 80 }, \
+			#8: {'s': (0.0, 0.0, 0.0), 'e': (0.00, -CELL_SIZE*4., -180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion, 'iter': 80 }, \
+			0: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*1.,  0.00,  0.0), 'kp': 3, 'ex_kp': 3, 'traj': None, 'iter': 10}, \
+			1: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4.,  CELL_SIZE,  0.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None, 'iter': 10}, \
+			2: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4., -CELL_SIZE,  0.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None, 'iter': 10}, \
+			3: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2.,  CELL_SIZE*3.,  90.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None, 'iter': 10}, \
+			4: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2., -CELL_SIZE*3., -90.0*math.pi/180.0), 'kp': 4, 'ex_kp': 4, 'traj': None, 'iter': 10}, \
+			5: {'s': (0.0, 0.0, 0.0), 'e': (0.00,  CELL_SIZE*4.,  180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion, 'iter': 10 }, \
+			6: {'s': (0.0, 0.0, 0.0), 'e': (0.00, -CELL_SIZE*4., -180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion, 'iter': 10 }, \
+	}
+	'''
+	'''
 	# Jackal - Lab cell 0.25[m], umax=1.0, delmax=80
+	umax = 1.0
 	MotionPrimitives = { \
 			0: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4.,  0.00,  0.0), 'kp': 8, 'ex_kp': 8, 'traj': None}, \
 			1: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2.,  0.00,  0.0), 'kp': 4, 'ex_kp': 4, 'traj': None}, \
@@ -55,6 +114,7 @@ def CreateFunnels():
 	}
 	'''
 	''' # Jackal - Lab cell 0.4[m]
+	umax = 1.0
 	MotionPrimitives = { \
 			0: {'s': (0.0, 0.0, 0.0), 'e': (1.60,  0.00,  0.0), 'kp': 8, 'ex_kp': 8, 'traj': None}, \
 			1: {'s': (0.0, 0.0, 0.0), 'e': (0.80,  0.00,  0.0), 'kp': 8, 'ex_kp': 8, 'traj': None}, \
@@ -68,6 +128,7 @@ def CreateFunnels():
 	}
 	'''
 	'''	# Jackal - Gazebo
+	umax = 1.0
 	MotionPrimitives = { \
 			0: {'s': (0.0, 0.0, 0.0), 'e': (5.00,  0.00,  0.0), 'kp': 12, 'ex_kp': 12, 'traj': None}, \
 			1: {'s': (0.0, 0.0, 0.0), 'e': (2.50,  0.00,  0.0), 'kp': 8, 'ex_kp': 8, 'traj': None}, \
@@ -81,6 +142,7 @@ def CreateFunnels():
 	}
 	'''
 	''' # forklift
+	umax = 2.0
 	MotionPrimitives = { \
 			0: {'s': (0.0, 0.0, 0.0), 'e': (5.00,  0.00,  0.0), 'kp': 12, 'ex_kp': 12, 'traj': None}, \
 			1: {'s': (0.0, 0.0, 0.0), 'e': (2.50,  0.00,  0.0), 'kp': 8, 'ex_kp': 8, 'traj': None}, \
@@ -96,11 +158,6 @@ def CreateFunnels():
 	#dbfile = open('MPLibrary.lib', 'rb')
 	#MotionPrimitives = dill.load(dbfile)
 	#dbfile.close()
-	'''
-	MotionPrimitives = { \
-			0: {'s': (0.0, 0.0, 0.0), 'e': (0.0,  4.0,  180.0*math.pi/180.0)}, \
-	}
-	'''
 	
 	#motion_library = []
 					   
@@ -116,21 +173,32 @@ def CreateFunnels():
 
 	plt.show(block = False)
 	plt.pause(0.05)
-	
-    # Declare pendulum model
-	plant = DubinsCarPlant_[float](umax=0.5, delmax=45.0*np.pi/180.0) #None]  # Default instantiation
-	
+		
 	for idx, mp in MotionPrimitives.items():
 		print('Computing motion primitive %d/%d ...' %(idx+1, len(MotionPrimitives)))
+		
+	    # Declare pendulum model
+		if(mp['e'][0] < 0.0):
+			#we're going backwards
+			plant = DubinsCarPlant_[float](umax=-umax, delmax=45.0*np.pi/180.0) #None]  # Default instantiation
+		else:
+			#normal heading
+			plant = DubinsCarPlant_[float](umax=umax, delmax=45.0*np.pi/180.0) #None]  # Default instantiation
+		
 		#import pdb; pdb.set_trace()
 		# Trajectory optimization to get nominal trajectory
 		x0 = mp['s']  #Initial state that trajectory should start from
 		xf = mp['e']  #Final desired state
 		plant.knotPoints = mp['kp']
 		plant.ex_knots = mp['ex_kp']
+		try:
+			plant.min_iter = mp['iter']
+		except:
+			plant.min_iter = 20
+			
 		suggest_trajectory = mp['traj']
 		dist = np.linalg.norm(np.array(xf)-np.array(x0))
-		tf0  = dist/(plant.umax*0.8) # Guess for how long trajectory should take
+		tf0  = dist/(np.max(np.abs([plant.umin, plant.umax]))*0.8) # Guess for how long trajectory should take
 		if(suggest_trajectory):
 			tguess, guess = suggest_trajectory(x0, xf, tf0, mp['kp'])
 			plant.initial_x_trajectory = \
@@ -185,8 +253,8 @@ def CreateFunnels():
 
 	# REMEMBER TO COMMENT THIS IF THE PRIMITIVES ARE GOOD TO BEGIN WITH!!!!
 	#MotionPrimitives = FixBadPrimitives(MotionPrimitives, 7, 8)
-	#MotionPrimitives = FixBadPrimitives(MotionPrimitives, 3, 4)
-	
+	#MotionPrimitives = FixBadPrimitives(MotionPrimitives, 4, 3)
+	print('Press c to save library or ^d to abort.')
 	import pdb; pdb.set_trace()
 	dbfile = open('MPLibrary.lib', 'wb')
 	dill.dump(MotionPrimitives, dbfile)

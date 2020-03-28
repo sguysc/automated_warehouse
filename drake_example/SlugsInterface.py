@@ -167,10 +167,12 @@ class SlugsInterface():
 				self.slugsProcess.stdin.flush()
 
 				# iterate until we actually get our state
+				#print('..')
 				stdout, stderr = "", ""
 				while not (re.search('[aAgGsS01]',stdout) or 'FORCEDNONWINNING' in stdout):
 					stdout += self.slugsProcess.stdout.readline()
 
+				print('resetted initial point')
 				if 'FORCEDNONWINNING' in stdout:
 					return ""
 				
@@ -218,6 +220,7 @@ class SlugsInterface():
 				self.slugsProcess.stdin.flush()
 
 				stdout, stderr = "", ""
+				#print('.')
 				while not "," in stdout:
 					stdout += self.slugsProcess.stdout.readline()
 
@@ -246,8 +249,9 @@ class SlugsInterface():
 				else:
 					sensed_inputs += "."
 			state_str = state_str + sensed_inputs # restrictions
-			state_str = state_str + format(action, '04b')[::-1] # actions
+			state_str = state_str + format(action, '0%db'%(self._Nout))[::-1] # actions
 
+			#print('....')
 			if(self._simulate == False):
 				self.slugsProcess.stdin.write("SETPOS\n" + state_str.replace("1","1\n").replace("0","0\n"))
 				self.slugsProcess.stdin.flush()
@@ -255,6 +259,7 @@ class SlugsInterface():
 			#self.slugsProcess.stdout.flush() # there's some garbage after setpos command
 			self.slugsProcess.stdout.readline() # there's some garbage after setpos command
 			self.slugsProcess.stdout.readline() # there's some garbage after setpos command
+			print('set position')
 			self._current_state = state_str
 			self._current_state_n = [int(x) for x in list(self._current_state)]
 			return self._current_state
@@ -306,6 +311,7 @@ class SlugsInterface():
 
 				# retrieve the new state
 				stdout, stderr = "", ""
+				#print('...')
 				while not ("," in stdout or "error" in stdout.lower()):
 					stdout += self.slugsProcess.stdout.readline()
 				trans = stdout.replace(">","").strip()
