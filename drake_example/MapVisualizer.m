@@ -272,7 +272,7 @@ axis([bounds(2)-0.2 bounds(4)+0.2 bounds(1)-0.2 bounds(3)+0.2])
 title('Example2 workspace, top view'); 
 
 % grid on;
-xlabel('Y [m]'); ylabel('X [m]');
+xlabel('y [m]'); ylabel('x [m]');
 
 %%
 if 0

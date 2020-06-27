@@ -1,0 +1,4 @@
+git branch -a
+git add -A
+git commit -m "added collision checking with FCL and fixed problem with badly scaled ellipses"
+git push origin interactive:multi_robot

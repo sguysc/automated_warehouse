@@ -26,13 +26,13 @@ from shapely.geometry import Polygon, box, Point
 
 from StructuredSlugsParser import compiler as slugscomp
 
-MAP_KIND = 'raymond'
-#MAP_KIND = 'lab' 
+#MAP_KIND = 'raymond'
+MAP_KIND = 'lab' 
 # I commented this because it causes loading DubinsPlantCar which tries to load pydrake which is unavailable in the lab computer
 #from DubinsPlantCar import CELL_SIZE
-#CELL_SIZE = 0.4 #[m]
-#CELL_SIZE = 0.4 #[m]
-CELL_SIZE = 1.25 #[m]
+#CELL_SIZE = 0.25 #[m]
+CELL_SIZE = 0.4 #[m]
+#CELL_SIZE = 1.25 #[m]
 
 import GeometryFunctions as gf_old
 import GeometryFunctions_fcl as gf
@@ -82,7 +82,7 @@ def GetRotmat(orient):
 	return rotmat
 
 # add connections between grid points using motion primitives if they do not collide with any obstacle
-def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_kind, cell_h=1.25, cell_w=1.25, force=False):
+def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_kind, cell_h=1.25, cell_w=1.25, force=False, plot=True):
 	global W_Width
 	global W_xgrid
 	global W_ygrid
@@ -97,7 +97,10 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 	
 	#import pdb; pdb.set_trace()
 	# plot obstacles & total workable space
-	ax = plot_map(workspace, obs)
+	if(plot==True):
+		ax = plot_map(workspace, obs)
+	else:
+		ax = 0
 		
 	X = np.arange(bounds[0]+cell/2.0, bounds[2]-cell/2.0, cell)
 	W_xgrid = X.copy()
@@ -182,10 +185,14 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 								if(key>6):
 									difficulty_factor = difficulty_factor*5
 
+								#import pdb; pdb.set_trace()
+								# fully-reactive
+								#adjList = GenerateAdjacentCells(mp, rotmat, orient, i, j, i+int(connect2[0][0]), j+int(connect2[1][0]), W_xgrid, W_ygrid )
+									
 								G.add_edge( 'H' + str(int(orient)) + 'X' + str(i) + 'Y' + str(j), \
 											'H' + str(int(toRot)) + 'X' + str(i+int(connect2[0][0])) + \
 											'Y' + str(j+int(connect2[1][0])), \
-											weight=LA.norm(connect2)*difficulty_factor, motion=key, index=total_count )
+											weight=LA.norm(connect2)*difficulty_factor, motion=key, index=total_count) # fully-reactive adjList=adjList )
 								total_count += 1
 				pbar.update(nY)
 		plt.pause(0.05)
@@ -201,9 +208,53 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 	print('Motion primitives on map took %.2f[sec]' %(toc-tic))
 	return G, ax
 
+# the idea is not to check all available cells if this mp runs through them
+# but only the ones that are in the vicinity of the mp.
+def GenerateAdjacentCells(mp, rotmat, orient, i1, j1, i2, j2, X, Y ):
+	# find out how to span the motion
+	i_min = np.min([i1, i2])
+	i_max = np.max([i1, i2])
+	j_min = np.min([j1, j2])
+	j_max = np.max([j1, j2])
+	# now, expand by 2 so it can touch those regions too, especially in the middle of a motion (u turns, etc..)
+	i_min = np.max([0, i_min-2])
+	j_min = np.max([0, j_min-2])
+	i_max = np.min([len(X)-1, i_max+2])
+	j_max = np.min([len(Y)-1, j_max+2])
+	num_ellipses = len(mp['V'])
+	# check all these cells if the mp runs through them
+	adjacent_cells = []
+	for cell_orient in range(4):
+		for i in range(i_min, i_max+1):
+			for j in range(j_min, j_max+1):
+				if(i==i1 and j==j1):
+					# not interesting, we know first region intersects with the motion (even if orientation is different)
+					continue
+				if(i==i2 and j==j2):
+					# not interesting, we know last region intersects with the motion
+					continue
+					
+				region = []
+				region.append( box( X[i]-cell/2.0, Y[j]-cell/2.0, X[i]+cell/2.0, Y[j]+cell/2.0) ) # x,y is the middle of the cell
+				# orient is the motion primitives direction for the ellipses centers & direction. the cells in this
+				# situation is independant so it has a different center in the theta direction, +-45 around the cell orientation
+				if(cell_orient == 3):
+					cell_o = -1 
+				else:
+					cell_o = cell_orient
+				# first ellipse (0) will include also the adjacent regions of region 1 (min. ellipse that covers the cell will) 
+				# necessarily be bigger than the region so it will "intersect" with the adjacent region) but that is not interesting
+				# because we know that we start in the first region.
+				pathfree = IsPathFree(mp, region, rotmat, orient, X[i1], Y[i1], 0, 0, -1e6, 1e6, -1e6, 1e6, -1, \
+									  box_center=cell_o*90.0*math.pi/180.0, initial_ell=1, end_ell=num_ellipses-1)
+				if(pathfree == False):
+					adjacent_cells.append('H' + str(int(cell_orient)) + 'X' + str(i) + 'Y' + str(j))
+	return adjacent_cells
+	
+	
 # function that decides if an obstacle-free path exist between start and end point
 # taking into account the width of the funnels
-def IsPathFree(mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, ymax, ax):
+def IsPathFree(mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, ymax, ax, box_center=None, initial_ell=-1, end_ell=-1):
 	global pix2m
 	# check if you're not going out of bounds (it's fast, but doesn't account for a U-turn!)
 	if( (xe < xmin) or (xe > xmax) ):
@@ -215,6 +266,12 @@ def IsPathFree(mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, 
 		orient = -1 #just so it would look nicer on the 3d plots 270 -> -90
 		
 	for i, S in enumerate(mp['V']):
+		if(i < initial_ell):
+			# ignore all ellipses till the first wanted one
+			continue
+		if((end_ell > 0) and (i >= end_ell)):
+			# ignore all ellipses from the last wanted one (so we won't get regions after our terminal point)
+			break
 		#import pdb; pdb.set_trace()
 		# in motion primitive's relative coordinates
 		x_rel = mp['xcenter'][i]
@@ -226,13 +283,17 @@ def IsPathFree(mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, 
 		e_center = np.hstack((e_center, theta + orient*90.0*math.pi/180.0))
 		# create the ellipsoid object
 		e = gf.Ellipsoid(e_center, S)
+		if(box_center == None):
+			bc = e_center[2]
+		else:
+			bc = box_center
 		#e1 = gf_old.Ellipsoid(e_center, S)
 		# iterate through all obstacles to see if any one of them
 		# touches any of the ellipsoids (funnel). This does not take
 		# into account the funnel in between any two ellipsoids
 		for obs in obstacles:
 			v = pix2m * np.array(obs.exterior.coords[:])
-			b = gf.Box(v, theta_center=e_center[2], theta_delta=np.pi*45./180.) #because that's how we defined the cell
+			b = gf.Box(v, theta_center=bc, theta_delta=np.pi*45./180.) #because that's how we defined the cell
 																				#the purpose is the "ignore" the badly scaled
 																				#ellipses in the theta direction by making box smaller
 			#b1 = gf_old.Box(v)
@@ -628,6 +689,79 @@ def plot_path(ax, G, paths, MotionPrimitives, robot_i):
 	toc = timer()
 	print('Plotting the shortest path took %.2f[sec]' %(toc-tic))
 
+# generates the specification file for slugs (decentralized) 
+def UpdateGoalsSlugsInputFile(goals, robot_num, filename='map_funnel'):
+	global W_xgrid
+	global W_ygrid
+	
+	tic = timer()
+	
+	# if this is called then it means we only update the goals so we assume the mapping is correct
+	# so we just load it from file
+	dbfile = open(filename + '.label2bit', 'rb')
+	map_label_2_bit = dill.load(dbfile)
+	dbfile.close()
+	
+	start_label = {}
+	finish_label = {}
+	
+	print('Updating the structured slugs file ...')
+		
+	goals_r = np.array(goals[robot_num])
+	N, __ = goals_r.shape
+	#print('Start at: %s' %(GetNodeLabel(goals[0, :])))
+	start_label['r%d' %robot_num] = []
+	finish_label['r%d' %robot_num] = []
+	for i in range(N):
+		start = goals_r[i, :]
+		if(i == N-1):
+			finish = goals_r[0, :] # complete the cycle
+		else:
+			finish = goals_r[i+1, :]
+		start_label['r%d' %robot_num].append(GetNodeLabel(start))
+		finish_label['r%d' %robot_num].append(GetNodeLabel(finish))
+		#print('Then go to: %s' %(finish_label[-1]))
+	
+
+	f = open(filename + '_r' + str(robot_num) + '.structuredslugs', 'r')
+	full_file = f.read()
+	# because nothing changes in the spec besides the init and liveness,
+	# we just edit those specific parts and not compute again intersections with no-enter zones etc.
+	i1 = full_file.find('[SYS_LIVENESS]') + 15
+	i2 = full_file.find('[SYS_INIT]') - 1
+	i3 = full_file.find('[ENV_INIT]') + 11
+	i4 = i3 + full_file[i3:].find('\n') + 1
+
+	new_text = full_file[0:i1] 
+	cyc_goals = start_label['r%d' %robot_num]
+	for g in cyc_goals[1:]:
+		new_text = new_text + 'R=%d\n' %( map_label_2_bit[g] )
+	new_text = new_text + 'R=%d\n' %( map_label_2_bit[cyc_goals[0]] )
+	new_text = new_text + full_file[i2:i3]
+	new_text = new_text + 'R=%d\n' %( map_label_2_bit[cyc_goals[0]] )
+	new_text = new_text + full_file[i4:]
+	f.close()
+
+	new_file = open(filename + '_r' + str(robot_num) + '.structuredslugs', 'w')
+	new_file.write(new_text)
+	new_file.close()
+
+	print('done.')
+	print('Converting to slugsin ...')
+	try:
+		resource.setrlimit(resource.RLIMIT_STACK, (2**29,-1))
+	except ValueError:
+		pass # Cannot increase limit
+	sys.setrecursionlimit(10**6)
+	sys.stdout = open(filename + '_r' + str(robot_num) + '.slugsin', "w") # the compiler function is just printing on screen
+	slugscomp.performConversion(filename + '_r' + str(robot_num) + '.structuredslugs', False)
+	sys.stdout = sys.__stdout__  # convert back to printing on screen
+	print('done.')
+	
+	toc = timer()
+	print('Creating structuredslugs & converting to slugsin file took %.2f[sec]' %(toc-tic))
+	
+	return map_label_2_bit
 
 # generates the specification file for slugs (decentralized) 
 def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funnel'):
@@ -710,9 +844,10 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 			total_actions    = len(MP) 
 			
 			f.write('R:0...%d\n' %( node_count ) ) # existence of self robot in funnel/region
-			for r in other_robots:
+			#for r in other_robots:
+			if(len(other_robots)>0):
 				for act in range(total_actions):
-					f.write('R%d_%d\n' %( r, act ) ) # existence of any robot anywhere nearby when taking funnel j
+					f.write('B_%d\n' %act) # %( r, act ) ) # existence of any robot anywhere nearby when taking funnel j
 			f.write('\n')
 
 			f.write('[OUTPUT]\n')
@@ -721,21 +856,6 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 			f.write('mp:0...%d\n' %( total_actions )) # action mp of robot i 
 			f.write('\n')
 
-			f.write('[ENV_LIVENESS]\n')
-			# all the points the other robots want to reach (goals)
-			live_str = '('
-			for act in range(total_actions):
-				live_str = live_str + 'X_%d & ' %( act )
-			live_str = live_str[0:-3] + ')\n'
-			for r in other_robots:
-				adv_far_away = live_str.replace('X', '!R%d'%r)
-				adv_near = live_str.replace('X', 'R%d'%r)
-				adv_near = adv_near.replace('&', '|')
-				f.write(adv_far_away)
-				f.write('#' + adv_near)
-				#for g in start_label['r%d' %r]:
-				#	f.write('R%d=%d\n' %( r, map_label_2_bit[g] ))
-			f.write('\n')
 			#import pdb; pdb.set_trace()
 			f.write('[SYS_LIVENESS]\n')
 			# all the points we want to reach (goals)
@@ -749,21 +869,11 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 			f.write('!(mp=%d)\n' %( total_actions ))
 			f.write('\n')
 
-			f.write('[ENV_INIT]\n')
-			f.write('R=%d\n' %( map_label_2_bit[start_label['r%d' %self_r][0]] )) 
-			# need to change this, either to have no specific start point, or, start at the current location,
-			# or have some mechanism to get from current location to start position
-			for r in other_robots:
-				adv_far_away = live_str.replace('X', '!R%d'%r)
-				f.write(adv_far_away)
-				#for act in range(total_actions):
-				#	f.write('!R%d_%d\n' %(r, act )) # existence of any robot in funnel close to self robot
-			f.write('\n')
-
 			f.write('[ENV_TRANS]\n')
 			all_mps = Set(np.arange(0, len(MP)))
 			list_of_formulas = []
 			list_of_mp_constraints = []
+			list_of_liveness_assmp = []
 			dict_connections = {}
 			# first, add all theoretically available motions to the environment transitions
 			for parent in G:
@@ -801,10 +911,53 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 							dict_connections[map_label_2_bit[child]].append(map_label_2_bit[parent])
 						'''
 						# connectivity map (action->result)
+						'''# the new way:
+						possible_places_to_stop = ''
+						adjList = G[parent][child]['adjList']
+						if 0:
+							for poss_region in adjList:
+								try:
+									possible_places_to_stop = possible_places_to_stop + (' | R\'=%d' %(map_label_2_bit[poss_region]))
+								except:
+									# GUY, TODO: check why this happens. i think it's not supposed to happen
+									# this happens when there's no bit label for this label
+									pass
+						possible_places_to_stop = possible_places_to_stop + ')'
+						'''
+						
+						'''# the new way: to the new region, or got stuck in place	
+						f.write('(R=%d & mp=%d)->((R=%d)W(R=%d)%s\n' %(\
+											map_label_2_bit[parent], \
+											mp_num, \
+											map_label_2_bit[parent], map_label_2_bit[child], possible_places_to_stop ))
+						'''
+						#f.write('(R=%d & mp=%d & B_%d)->(R\'=%d | R\'=%d%s\n' %(\
+						#					map_label_2_bit[parent], \
+						#					mp_num, mp_num, \
+						#					map_label_2_bit[child], map_label_2_bit[parent], possible_places_to_stop )) 
+						#f.write('(R=%d & mp=%d & !B_%d)->(R\'=%d)\n' %(\
+						#					map_label_2_bit[parent], \
+						#					mp_num, mp_num, \
+						#					map_label_2_bit[child])) 
+						#f.write('(R=%d & mp=%d & !B_%d)->(F(R=%d))\n' %(\
+						#					map_label_2_bit[parent], \
+						#					mp_num, mp_num, \
+						#					map_label_2_bit[child])) 
+						#list_of_liveness_assmp.append('(R=%d & mp=%d)->(R\'=%d)\n' %(\
+						#					map_label_2_bit[parent], \
+						#					mp_num, \
+						#					map_label_2_bit[child]) )
+						#list_of_liveness_assmp.append('(R=%d & mp=%d)->(<>R=%d)\n' %(\
+						#					map_label_2_bit[parent], \
+						#					mp_num, \
+						#					map_label_2_bit[child]) )
+						
+						# the old deterministic way
 						f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(\
 											map_label_2_bit[parent], \
 											mp_num, \
-											map_label_2_bit[child] )) #this is allowed
+											map_label_2_bit[child] )) 
+						
 						# not needed
 						#for r in other_robots:
 						#	list_of_mp_constraints.append('(R=%d & (R%d=%d))->!(mp\'=%d)\n' %(map_label_2_bit[parent], \
@@ -862,6 +1015,36 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 			# this is for the other robots, how can they move but we don't worry ourselves with their exact
 			# policies, only that they cannot hit static obstacles nor the main robot
 			f.write('\n')
+													  
+			f.write('[ENV_LIVENESS]\n')
+			# all the points the other robots want to reach (goals)
+			live_str = '('
+			for act in range(total_actions):
+				live_str = live_str + 'X_%d & ' %( act )
+			live_str = live_str[0:-3] + ')\n'
+			for r in other_robots:
+				adv_far_away = live_str.replace('X', '!B') #'!R%d'%r)
+				adv_near = live_str.replace('X', 'B') #'R%d'%r)
+				adv_near = adv_near.replace('&', '|')
+				f.write(adv_far_away)
+				f.write('#' + adv_near)
+				#for g in start_label['r%d' %r]:
+				#	f.write('R%d=%d\n' %( r, map_label_2_bit[g] ))
+			f.writelines(list_of_liveness_assmp)
+			f.write('\n')
+			
+			f.write('[ENV_INIT]\n')
+			f.write('R=%d\n' %( map_label_2_bit[start_label['r%d' %self_r][0]] )) 
+			# need to change this, either to have no specific start point, or, start at the current location,
+			# or have some mechanism to get from current location to start position
+			#for r in other_robots:
+			if(len(other_robots)>0):
+				adv_far_away = live_str.replace('X', '!B') #'!R%d'%r)
+				f.write(adv_far_away)
+				#for act in range(total_actions):
+				#	f.write('!R%d_%d\n' %(r, act )) # existence of any robot in funnel close to self robot
+			f.write('\n')
+
 			'''
 			for r in other_robots:
 				res = [sub.replace('X', 'R%d'%r) for sub in list_of_formulas]
@@ -874,14 +1057,17 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 			f.write('[SYS_TRANS]\n')
 			#for r in other_robots:
 			#	f.write('!(R\'=R%d)\n' %r)
-			for r in other_robots:
+			#for r in other_robots:
+			if(len(other_robots)>0):
 				for act in range(total_actions):
-					f.write('R%d_%d\'->!(mp\'=%d)\n' %(r, act, act )) # existence of any robot in funnel close to self robot
+					#f.write('R%d_%d\'->!(mp\'=%d)\n' %(r, act, act )) # existence of any robot in funnel close to self robot
+					f.write('B_%d\'->!(mp\'=%d)\n' %(act, act )) # existence of any robot in funnel close to self robot
+					#f.write('B_%d->!(mp\'=%d)\n' %(act, act )) # existence of any robot in funnel close to self robot
 			f.write('\n')
 			
 			# this is the robot which the policy is about
 			f.writelines(list_of_mp_constraints)
-			
+													  			
 			if(self_r == 0):
 				#store for later use with other robots
 				f.seek(0)

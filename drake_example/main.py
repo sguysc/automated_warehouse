@@ -37,8 +37,8 @@ from tf2_geometry_msgs import do_transform_vector3
 
 ROBOT_TYPE = 'JACKAL'  # original JACKAL run with 'roslaunch jackal_gazebo jackal_world.launch'
 #ROBOT_TYPE = 'TURTLEBOT'
-MAP    = 'raymond'
-#MAP    = 'lab'
+#MAP    = 'raymond'
+MAP    = 'lab'
 umax   = 0.3 #1.0  # jackal m/sec     5.0
 delmax = 45.0*np.pi/180.0  # jackal rad   30.0 80
 MEAS_FS = 100 #100 for gazebo, not sure about vicon/optitrack
