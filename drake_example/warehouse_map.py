@@ -1097,13 +1097,19 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 	return map_label_2_bit
 
 # get a complete synthesized controller for our spec.
-def CheckRealizeability(robots_num, filename='map_funnel'):
+def CheckRealizeability(robots_num, filename='map_funnel', robot_num=-1):
 	tic = timer()
 	controllers = []
 	slugsLink = '/home/cornell/Tools/slugs_ltl_stack/src/slugs'
 	realizable = True
 	robot_fail_number = -1
 	#import pdb; pdb.set_trace()
+	if(robot_num == -1):
+		# check all
+		check_vector = range(robots_num)
+	else:
+		# check only the updated one
+		check_vector = range(robot_num, robot_num+1)
 	print('Starting to check realizeability. This might take some time ...')
 	for r in range(robots_num):
 		if(not realizable):
