@@ -7,6 +7,8 @@ import multiprocessing
 import os, sys
 from time import localtime, strftime
 import logging # can't handle the ros logging :(
+from functools import partial
+import re
 
 #import main as mn
 import Jackal as mn
@@ -48,7 +50,60 @@ class CustomText(tk.Text):
             self.event_generate("<<TextModified>>")
 
         return result
+	
+class CreateToolTip(object):
+    """
+    create a tooltip for a given widget
+    """
+    def __init__(self, widget, text='widget info'):
+        self.waittime = 500     #miliseconds
+        self.wraplength = 180   #pixels
+        self.widget = widget
+        self.text = text
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+        self.widget.bind("<ButtonPress>", self.leave)
+        self.id = None
+        self.tw = None
 
+    def enter(self, event=None):
+        self.schedule()
+
+    def leave(self, event=None):
+        self.unschedule()
+        self.hidetip()
+
+    def schedule(self):
+        self.unschedule()
+        self.id = self.widget.after(self.waittime, self.showtip)
+
+    def unschedule(self):
+        id = self.id
+        self.id = None
+        if id:
+            self.widget.after_cancel(id)
+
+    def showtip(self, event=None):
+        x = y = 0
+        x, y, cx, cy = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 20
+        # creates a toplevel window
+        self.tw = tk.Toplevel(self.widget)
+        # Leaves only the label and removes the app window
+        self.tw.wm_overrideredirect(True)
+        self.tw.wm_geometry("+%d+%d" % (x, y))
+        label = tk.Label(self.tw, text=self.text, justify='left',
+                       background="#ffffff", relief='solid', borderwidth=1,
+                       wraplength = self.wraplength)
+        label.pack(ipadx=1)
+
+    def hidetip(self):
+        tw = self.tw
+        self.tw= None
+        if tw:
+            tw.destroy()
+			
 class GUI:
 	def __init__(self):
 
@@ -62,6 +117,7 @@ class GUI:
 		self.add_new_obs = False
 		self.add_new_nez = False
 		self.add_new_ow = False
+		self.add_new_goal = False
 		self.coord1 = None
 		self.coord2 = None
 		self.RobotObjects = {}
@@ -74,7 +130,7 @@ class GUI:
 		mapframe.grid(row=0,column=0) 
 		self.map = tk.Canvas(mapframe, width=self.canvas_width, height=self.canvas_height, bg='white') 
 		self.map.bind("<Button-1>", self.get_lclicked_coord)
-		self.map.bind("<Button-3>", self.get_rclicked_coord)
+		#self.map.bind("<Button-3>", self.get_rclicked_coord)
 		#self.map.grid(row=0,column=0) 
 		self.map.pack()
 
@@ -110,7 +166,7 @@ class GUI:
 		self.robot_num.insert(tk.END, '0')
 		#self.robot_num.grid(row=1,column=0)
 		self.robot_num.pack(side = tk.RIGHT)
-		lbl = tk.Label(frame, text='Robot #') 
+		lbl = tk.Label(frame, text='     Robot #') 
 		lbl.pack(side = tk.RIGHT)
 		
 		frame2 = tk.Frame(self.main)
@@ -125,11 +181,26 @@ class GUI:
 		frame3 = tk.Frame(self.main)
 		frame3.grid(row=2,column=1) 
 		self.add_obs_button = tk.Button(frame3, bitmap='gray75', width=15, command=self.add_obstacle_to_fixed) #text='add obs',
+		add_obs_button_ttp = CreateToolTip(self.add_obs_button, "add obstacle to map")
 		self.add_obs_button.pack(side = tk.LEFT)
 		self.add_nez_button = tk.Button(frame3, bitmap='error', width=15, command=self.add_nez_to_fixed) #text='add nez',
+		add_nez_button_ttp = CreateToolTip(self.add_nez_button, "add do not enter zone to map")
 		self.add_nez_button.pack(side = tk.RIGHT)
 		self.add_ow_button = tk.Button(frame3, bitmap='warning', width=15, command=self.add_ow_to_fixed) #text='add ow',
+		add_ow_button_ttp = CreateToolTip(self.add_ow_button, "add one-way to map")
 		self.add_ow_button.pack(side = tk.RIGHT)
+		self.add_goal_button = tk.Button(frame3, bitmap='hourglass', width=15, command=self.add_goal_to_task) #text='add ow',
+		add_goal_button_ttp = CreateToolTip(self.add_goal_button, "add goal to map")
+		self.add_goal_button.pack(side = tk.RIGHT)
+		
+		self.synth_opt  = tk.IntVar()
+		self.synth_opt_full  = tk.Radiobutton(frame, text='Reactive', variable=self.synth_opt, value=1)
+		self.synth_opt_full.pack(side = tk.RIGHT) 
+		self.synth_opt_semi  = tk.Radiobutton(frame, text='Semi-', variable=self.synth_opt, value=2)
+		self.synth_opt_semi.pack(side = tk.RIGHT) 
+		self.synth_opt_graph = tk.Radiobutton(frame, text='Graph', variable=self.synth_opt, value=3)
+		self.synth_opt_graph.pack(side = tk.RIGHT) 
+		self.synth_opt_full.select()
 		
 		# handle the menu bar
 		self.menu = tk.Menu(self.main) 
@@ -145,6 +216,14 @@ class GUI:
 		helpmenu.add_command(label='About', command=self.ShowAbout) 
 	
 		self.main.protocol("WM_DELETE_WINDOW", self.check_before_quitting)
+		
+		self.main.columnconfigure(0, weight=1)
+		self.main.rowconfigure(1, weight=1)
+		'''
+		mapframe.rowconfigure(0, weight=1)
+		mapframe.columnconfigure(0, weight=1)
+		'''
+
 		self.main.mainloop() 
 	
 	def check_before_quitting(self):
@@ -174,16 +253,38 @@ class GUI:
 		
 		return True
 	
-	def get_rclicked_coord(self, event):
+	# right click on the map to delete the object that was clicked
+	def get_rclicked_coord(self, source, event):
 		if(not self.file_loaded):
 			return
-		import pdb; pdb.set_trace()
-		print "clicked at", event.x, event.y
+		
+		deleted_something = False
+
+		if('obs' in source):
+			self.spec['obstacles'].pop(source)
+			deleted_something = True
+		if('ne' in source):
+			self.spec['no_entrance'].pop(source)
+			deleted_something = True
+		if('R' in source):
+			r, g = [int(s) for s in re.findall(r'\d+', source)]
+			self.spec['robot%d'%r].pop('goal%d'%(g+1))
+			self.spec['robot%d'%r].update({'goals': self.spec['robot%d'%r]['goals']-1})
+			deleted_something = True
 			
+		if(deleted_something):
+			print('deleting object %s' %source)
+			#import pdb; pdb.set_trace()
+			self.LoadMap(reload=False) #because we did not save the spec file yet, it's just in self.spec
+			self.LoadTask()
+			self.DrawMap()
+			self.PopulateTask()
+	
+	# adding an object to the map (and spec)
 	def get_lclicked_coord(self, event):
 		if(not self.file_loaded):
 			return
-		if(self.add_new_obs == False and self.add_new_nez == False and self.add_new_ow == False):
+		if(self.add_new_obs == False and self.add_new_nez == False and self.add_new_ow == False and self.add_new_goal == False):
 			self.coord1 = None 
 			self.coord2 = None
 			return
@@ -210,6 +311,31 @@ class GUI:
 						i += 1
 				except:
 					self.spec['no_entrance'].update({'ne%d' %i : self.coord1 + self.coord2})
+			if(self.add_new_goal):
+				robot_num = int(self.robot_num.get())
+				# decide the direction of the arrow first
+				dx = self.coord2[0] - self.coord1[0]
+				dy = self.coord2[1] - self.coord1[1]
+				direction = 0.0
+				if(np.abs(dx) > np.abs(dy)):
+					if(dx >= 0):
+						direction = 0.0
+					else:
+						direction = 3.14
+				else:
+					if(dy >= 0):
+						direction = 1.57
+					else:
+						direction = -1.57
+				try:
+					i = 1
+					while True:
+						self.spec['robot%d' %robot_num]['goal%d' %i]
+						i += 1
+				except:
+					self.spec['robot%d' %robot_num].update({'goal%d' %i : [self.coord1[0],self.coord1[1], direction]})		
+					self.spec['robot%d' %robot_num].update({'goals': i})		
+			
 			if(self.add_new_ow):
 				# decide the direction of the arrow first
 				dx = self.coord2[0] - self.coord1[0]
@@ -235,21 +361,26 @@ class GUI:
 				except:
 					self.spec['one_way'].update({'%s_%d' %(direction, i) : self.coord1 + self.coord2})
 			self.LoadMap(reload=False) #because we did not save the spec file yet, it's just in self.spec
+			self.LoadTask()
 			self.DrawMap()
 			self.PopulateTask()
 
 			self.add_new_obs = False 
 			self.add_new_nez = False
 			self.add_new_ow  = False
+			self.add_new_goal  = False
 			self.coord1 = None
 			self.coord2 = None
 
 	def ShowAbout(self):
 		tkMessageBox.showinfo("About", "Warehouse Automation in a Day\n\nGuy Scher\nJune 2020")
-		
+	
+	# show open file dialog and load the selected file
 	def OpenMapDialog(self, file=None):
 		if(file is None):
-			self.filename = tkFileDialog.askopenfilename(initialdir = ".",title = "Select file",filetypes = (("Spec. files","*.specification"),("all files","*.*")))
+			self.filename = tkFileDialog.askopenfilename(initialdir = ".", \
+														 title = "Select file",\
+														 filetypes = (("Spec. files","*.specification"),("all files","*.*")))
 		# if the user did not cancel
 		if(self.filename != () ):
 			if(self.filename != '' ):
@@ -269,6 +400,7 @@ class GUI:
 			
 				self.thread = {}
 
+	# save the new spec to file and reload
 	def SaveSpecification(self):
 		if(not self.file_loaded):
 			return
@@ -298,9 +430,10 @@ class GUI:
 	def Synthesize(self):
 		if(not self.file_loaded):
 			return
-		
+
 		self.SynthesisProcedure()
-		
+	
+	# stop running the thread of the running robot
 	def StopExecution(self):
 		if(not self.file_loaded):
 			return
@@ -321,7 +454,8 @@ class GUI:
 				self.thread[robot_num].terminate()
 		except:
 			print('Robot%d does not seem to run' %robot_num)
-		
+	
+	# start running the robot that is indicated in the box
 	def Execute(self):
 		if(not self.file_loaded):
 			return
@@ -337,7 +471,8 @@ class GUI:
 			pass
 		finally:
 			print('running robot #%d' %(robot_num))
-			#self.thread.update({robot_num: threading.Thread(target=run_main_program, args=[robot_num, self.spec['active_robots'], 'Person']) })
+			#self.thread.update({robot_num: threading.Thread(target=run_main_program, \
+			#                   args=[robot_num, self.spec['active_robots'], 'Person']) })
 			self.thread.update({robot_num: multiprocessing.Process(target=self.run_main_program, \
 								args=(robot_num, self.spec, 'person_standing')) })
 			'''
@@ -351,7 +486,7 @@ class GUI:
 			'''
 		self.thread[robot_num].start()
 
-		
+	# draw the map on the canvas	
 	def DrawMap(self):
 		self.map.delete('all')
 		#
@@ -367,26 +502,33 @@ class GUI:
 		
 		# set up grid and axes
 		self.checkered(self.map, int(xycoords[0][1]), int(xycoords[1][0]), 10)
-
+		# draw workspace boundaries
 		self.map.create_polygon(*xycoords, fill='', outline='black', width='4')
 		
-		#import pdb; pdb.set_trace()
+		#draw obstacles
 		for i, obstacle in enumerate(self.obs):
 			xycoords = obstacle.exterior.coords[:]+dpos
 			xycoords = np.floor(xycoords / self.pix2m)
 			xycoords = np.vstack([xycoords[:,1], xycoords[:,0]]).transpose() # swap x-y to match my axes
 			xycoords = xycoords.tolist()
-			self.map.create_polygon(*xycoords, fill='#e1dfdf', outline='black')
-			self.map.create_text((xycoords[0][0]+xycoords[1][0])/2., (xycoords[0][1]+xycoords[2][1])/2., text='%s'%(self.obs_names[i]))
-		
+			self.map.create_polygon(*xycoords, fill='#e1dfdf', outline='black', tags=self.obs_names[i])
+			self.map.create_text((xycoords[0][0]+xycoords[1][0])/2., (xycoords[0][1]+xycoords[2][1])/2., text=self.obs_names[i], \
+								tags=self.obs_names[i])
+			# react to right clicks (for deletion)
+			self.map.tag_bind(self.obs_names[i],"<Button-3>", partial(self.get_rclicked_coord, self.obs_names[i]))
+		# draw no enter zones
 		for i, nez in enumerate(self.no_enter):
 			xycoords = nez.exterior.coords[:]+dpos
 			xycoords = np.floor(xycoords / self.pix2m)
 			xycoords = np.vstack([xycoords[:,1], xycoords[:,0]]).transpose() # swap x-y to match my axes
 			xycoords = xycoords.tolist()
-			self.map.create_polygon(*xycoords, fill='#ffaeae', outline='black')
-			self.map.create_text((xycoords[0][0]+xycoords[1][0])/2., (xycoords[0][1]+xycoords[2][1])/2., text='%s'%(self.no_enter_names[i]))
+			self.map.create_polygon(*xycoords, fill='#ffaeae', outline='black', tags=self.no_enter_names[i])
+			self.map.create_text((xycoords[0][0]+xycoords[1][0])/2., (xycoords[0][1]+xycoords[2][1])/2., text=self.no_enter_names[i], \
+								tags=self.no_enter_names[i])
+			# react to right clicks (for deletion)
+			self.map.tag_bind(self.no_enter_names[i],"<Button-3>", partial(self.get_rclicked_coord, self.no_enter_names[i]))
 		
+		# draw arrows for one ways
 		# south 
 		for ow in self.one_ways[0]:
 			xycoords = ow.bounds
@@ -420,7 +562,7 @@ class GUI:
 			x2 = np.floor((ow.bounds[2]+dx)/ self.pix2m)
 			y2 = np.floor((ow.bounds[3]+dy)/ self.pix2m)
 			self.map.create_line(y2, (x1+x2)/2, y1, (x1+x2)/2, arrow=tk.LAST, fill='#738744')
-		#import pdb; pdb.set_trace()
+		# goals
 		for R, goals in enumerate(self.all_goals):
 			for i, goal in enumerate(goals):
 				center = [goal[0], goal[1]]
@@ -428,11 +570,14 @@ class GUI:
 				y0 = (center[1]+dy-CELL_SIZE/2.)/ self.pix2m
 				x1 = (center[0]+dx+CELL_SIZE/2.)/ self.pix2m
 				y1 = (center[1]+dy+CELL_SIZE/2.)/ self.pix2m
-				self.map.create_oval(y0, x0, y1, x1, fill='#ffda9b', activefill='#ffaa9b')
-				self.map.create_text((center[1]+dy)/self.pix2m, (center[0]+dx)/self.pix2m, text='R%dg%d'%(R,i))
+				self.map.create_oval(y0, x0, y1, x1, fill='#ffda9b', activefill='#ffaa9b', tags='R%dg%d'%(R,i))
+				self.map.create_text((center[1]+dy)/self.pix2m, (center[0]+dx)/self.pix2m, text='R%dg%d'%(R,i), tags='R%dg%d'%(R,i))
+				# react to right clicks (for deletion)
+				self.map.tag_bind('R%dg%d'%(R,i),"<Button-3>", partial(self.get_rclicked_coord, 'R%dg%d'%(R,i)))
 		
 		self.map.pack()
-			
+	
+	# write the spec details in the text windows - fixed and task
 	def PopulateTask(self):
 		self.edit_spec.delete('1.0', tk.END)
 		self.edit_fixed_spec.delete('1.0', tk.END)
@@ -465,7 +610,7 @@ class GUI:
 		
 		self.edit_fixed_spec.insert(tk.END, '}\n')
 			
-	
+	# load the goals in an easier way
 	def LoadTask(self):
 		'''
 		try:
@@ -488,7 +633,7 @@ class GUI:
 				goals.append(goal)
 			self.all_goals.append(goals)
 
-	
+	# load the fixed spec in an easier way
 	def LoadMap(self, reload=True):
 		try:
 			if(reload):
@@ -536,10 +681,12 @@ class GUI:
 
 		self.pix2m  = np.max([self.W_Width/self.canvas_width, self.W_Height/self.canvas_height])*1.0
 		
-		#import pdb; pdb.set_trace()
-
-	# GUY: need to check this pipeline
+	# synthesis pipeline
 	def SynthesisProcedure(self):	
+		
+		self.synth_button.configure(text = 'please wait ...')
+		self.main.update()
+		
 		cell = CELL_SIZE
 		
 		if(self.has_fixed_step_changed == False):
@@ -550,43 +697,67 @@ class GUI:
 		folders = self.filename.split('/')
 		fname, ext = folders[-1].split('.')
 		map_kind = fname
-		#import pdb; pdb.set_trace()
+		
+		robot_num = int(self.robot_num.get())
+		# 1- full reactive; 2- semi-reactive, re-synth whenever obstacle comes in; 3- only use graph search
+		reactive_option = self.synth_opt.get()
 		
 		MP = wm.LoadMP(fName='MPLibrary.lib')
-		wm.MotionPrimitivesToFile(map_kind, MP) # for loading in matlab
+		wm.MotionPrimitivesToFile(map_kind, MP) # creates the file later used for loading in matlab
 		# we load it again to get it from the file, in case user did not hit save
 		workspace, obs, no_enter, one_ways = wm.ReplicateMap(map_kind=map_kind) #
 		goals, robots_num = wm.GetGoals(map_kind=map_kind)
 		# save it to file
 		wm.MapToFile(map_kind.lower(), workspace, obs, goals, no_enter, one_ways, 1.0) # for loading in matlab
 
-		DiGraph, ax = wm.PopulateMapWithMP(MP, workspace, obs, no_enter, one_ways, map_kind, cell_h=cell, cell_w=cell, force=force, plot=False)
+		DiGraph, ax = wm.PopulateMapWithMP(MP, workspace, obs, no_enter, one_ways, map_kind, \
+										   cell_h=cell, cell_w=cell, force=force, plot=False)
 
 		print('Searching for naive paths (disregarding no-entry zones) using graph search ...')
 		for i in range(robots_num):
-			# plot each individual robot's path
+			# get each individual robot's path
 			path = wm.FindPathBetweenGoals(DiGraph, np.array(goals[i]) )
+			all_paths_exist = all(v for v in path)
+			if(not all_paths_exist):
+				print('There is a problem, there is no path between all the goals.')
+				print('Synthesis will also fail, so try to change the specification.')
+				print('Aborting ...')
+				return
 		
 		# create the amount of jackals you want
 		robots_ic = []
-		for i in range(robots_num):
-			robots_ic.append([goals[i][0][0], goals[i][0][1], goals[i][0][2]])
-		RU.CreateJackals(map_kind, robots_ic)
-		#
-		if(self.has_fixed_step_changed):
-			map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, goals, MP, no_enter, robots_num, filename=map_kind) #'map_funnel')
-		else:
-			#import pdb; pdb.set_trace()
-			robot_num = int(self.robot_num.get())
-			map_label_2_bit = wm.UpdateGoalsSlugsInputFile(goals, robot_num, filename=map_kind)
-		# the reverse dictionary is useful
-		map_bit_2_label = dict((v, k) for k, v in map_label_2_bit.items())
-
-		if(self.has_task_step_changed):
-			wm.CheckRealizeability(robots_num, filename=map_kind, robot_num=robot_num)
-		else:
-			wm.CheckRealizeability(robots_num, filename=map_kind)
+		if(reactive_option == 1):
+			for i in range(robots_num):
+				robots_ic.append([goals[i][0][0], goals[i][0][1], goals[i][0][2]])
+		elif(reactive_option == 2):
+			robots_ic.append([goals[robot_num][0][0], goals[robot_num][0][1], goals[robot_num][0][2]])
+		elif(reactive_option == 3):
+			robots_ic.append([goals[robot_num][0][0], goals[robot_num][0][1], goals[robot_num][0][2]])
+			print('not implemented yet!')
 			
+		RU.CreateJackals(map_kind, robots_ic)
+		# only update the section that deals with the goals in case the fixed spec did not change
+		if(self.has_fixed_step_changed): # or 
+			if(reactive_option == 1):
+				map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, goals, MP, no_enter, robots_num, filename=map_kind) #'map_funnel')
+			elif(reactive_option == 2):
+				map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, [goals[robot_num]], MP, no_enter, 1, filename=map_kind) #'map_funnel')
+		else:
+			map_label_2_bit = wm.UpdateGoalsSlugsInputFile(goals, robot_num, filename=map_kind)
+			
+		# the reverse dictionary is useful
+		#map_bit_2_label = dict((v, k) for k, v in map_label_2_bit.items())
+
+		if(self.has_task_step_changed): 
+			#if(reactive_option == 1):
+			wm.CheckRealizeability(robots_num, filename=map_kind, robot_num=robot_num)
+			#if(reactive_option == 2):
+			#	wm.CheckRealizeability(1, filename=map_kind, robot_num=robot_num)
+		else:
+			wm.CheckRealizeability(robots_num, filename=map_kind, robot_num=robot_num)
+		
+		self.synth_button.configure(text = 'Synthesize')
+		self.main.update()
 		print('Done.')
 
 	def add_obstacle_to_fixed(self):
@@ -604,6 +775,11 @@ class GUI:
 			return
 		self.add_new_ow = not self.add_new_ow
 	
+	def add_goal_to_task(self):
+		if(not self.file_loaded):
+			return
+		self.add_new_goal = not self.add_new_goal
+		
 	def checkered(self, canvas, canvas_height, canvas_width, line_distance):
 		# vertical lines at an interval of "line_distance" pixel
 		for x in range(line_distance,canvas_width,line_distance):
@@ -621,7 +797,7 @@ class GUI:
 	def run_main_program(self, robot_num, spec, obstacles):
 		# option a
 		'''
-		os.system("./main.py --i %d --n %d --obs %s" %(robot_num, total_robots, obstacles))
+		os.system("./Jackal.py --i %d --n %d --obs %s" %(robot_num, total_robots, obstacles))
 		'''
 		# option b
 		#'''

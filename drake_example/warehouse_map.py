@@ -1111,7 +1111,8 @@ def CheckRealizeability(robots_num, filename='map_funnel', robot_num=-1):
 		# check only the updated one
 		check_vector = range(robot_num, robot_num+1)
 	print('Starting to check realizeability. This might take some time ...')
-	for r in range(robots_num):
+	#import pdb; pdb.set_trace()
+	for r in check_vector:
 		if(not realizable):
 			break;
 			
