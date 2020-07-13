@@ -13,9 +13,10 @@ from time import localtime, strftime, sleep
 from timeit import default_timer as timer
 
 # my stuff
-from warehouse_map import LoadMP, GetSpecificControl, find_nearest, GetRotmat, FL_L, FL_W
+from warehouse_map import LoadMP, GetSpecificControl, find_nearest, GetRotmat, FL_L, FL_W, UpdateRestrictionSlugsInputFile, Convert2Slugsin, CreateSlugsInputFile
 from SlugsInterface import *
 import GeometryFunctions_fcl as gf
+from shapely.geometry import box
 #import GeometryFunctions as gf
 
 # lab or simulation
@@ -39,7 +40,7 @@ from tf2_geometry_msgs import do_transform_vector3
 
 # class to handle a single robot comm.
 class Jackal:
-	def __init__(self, idx, total_robots, list_obs, first_goal_for_gazebo=None):
+	def __init__(self, idx, total_robots, list_obs, first_goal_for_gazebo=None, reactive='F'):
 		self.ROBOT_TYPE = 'JACKAL'  # original JACKAL run with 'roslaunch jackal_gazebo jackal_world.launch'
 		#self.ROBOT_TYPE = 'TURTLEBOT'
 		#self.MAP    = 'raymond'
@@ -105,7 +106,9 @@ class Jackal:
 		self.delta_prev = 0.0
 		self._sensing_function_time = 0.0
 		self.external_shutdown = False
-		
+		self.reactive = reactive # Full, Semi, Graph based
+		self.InSynthesisProcedure = False
+
 		# load the map properties
 		aut = open(map_file, 'r')
 		map_prop = json.load(aut)
@@ -116,7 +119,6 @@ class Jackal:
 								 map_prop['workspace'][0]['X'],  map_prop['workspace'][0]['Y']])
 		self.W_xgrid = np.arange(bounds[0]+cell/2.0, bounds[2]-cell/2.0, cell)
 		self.W_ygrid = np.arange(bounds[1]+cell/2.0, bounds[3]-cell/2.0, cell)
-		
 		# create the funnel path file
 		#self.states_fid = open('../telemetry/r%d_%s.states' %(idx, self.MAP), 'wt')
 
@@ -134,7 +136,18 @@ class Jackal:
 		dbfile.close()
 		# the reverse dictionary is also useful
 		self.map_bit_2_label = dict((v, k) for k, v in self.map_label_2_bit.items())
-		#import pdb; pdb.set_trace()
+		goals = map_prop['r%d' %idx]
+		self.goals = []
+		self.goals_ic = []
+		for goal in goals:
+			self.goals.append(self.GetClosestNode([goal['x'], goal['y'], goal['teta']]))
+			self.goals_ic.append([goal['x'], goal['y'], goal['teta']])
+		self.goal = 0
+		self.nez = []
+		no_enters = map_prop['no_enter']
+		for no_enter in no_enters:
+			self.nez.append(box( no_enter['x'], no_enter['y'], no_enter['X'], no_enter['Y'] ))
+			
 		# old, interface with the explicitStrategy of slugs
 		#aut_file = aut_file + ('_r%d' %idx) + '.json'
 		#aut = open(aut_file, 'r')
@@ -162,6 +175,10 @@ class Jackal:
 		
 		# new, interface the interactive mode of slugs
 		tic = timer()
+		#just make sure that we have the correct slugsin that corresponds to the structuredslugs
+		print(self.colorize('YELLOW','the following is to make sure the input is valid. can remove this at some point in the future'))
+		Convert2Slugsin(aut_file, [self.idx]) 
+		
 		self.slugs = SlugsInterface(aut_file + ('_r%d' %self.idx), simulate=False, slugsLink = self.SLUGS_DIR)
 		toc = timer()
 		if(not self.slugs.enabled):
@@ -172,8 +189,11 @@ class Jackal:
 		self.slugs.DiscoverOutputs()
 		self.slugs.DiscoverGoals()
 		self.slugs.GetInitialPos()
-		
-		self.funnel_sensors = dict(zip(range(self.slugs._Nsens), [False]*self.slugs._Nsens))		
+		#import pdb; pdb.set_trace()
+		# GUY: changed from Nsens to _Nout due to semi-reactive
+		#self.funnel_sensors = dict(zip(range(self.slugs._Nsens), [False]*self.slugs._Nsens))		
+		self.funnel_sensors = dict(zip(range(self.Nactions), [False]*self.Nactions))		
+		self.blocking_obs = [[]]*self.Nactions #keep holding the locations of blocking obstacles
 		
 		# use this break point as a synchronizer between multiple runs
 		# (not working well with the GUI.py)
@@ -195,7 +215,7 @@ class Jackal:
 				set_first_pose.pose.orientation.w = q[3]
 				sleep(3.0) # give it a chance to actually move the robot
 				pub.publish(set_first_pose)
-				sleep(.5) # give it a chance to actually move the robot
+				sleep(1.0) # give it a chance to actually move the robot
 				
 			except:
 				pass
@@ -217,7 +237,7 @@ class Jackal:
 					break
 		self.next_state, self.next_action = \
 			self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
-		self.goal = 0
+		#import pdb; pdb.set_trace()
 		print('R%d starts in region %s (%d)' %(idx, self.map_bit_2_label[self.curr_state],self.curr_state))
 
 		#self.N_state  = len(self.states)
@@ -378,12 +398,39 @@ class Jackal:
 
 			# populates the funnel restriction for the ego-robot
 			self.funnel_sensors = self.SenseEnvironment()
+			
+			# re-synthesizing takes a while, so during this time, wait and do nothing
+			# GUY: in the future, perhaps check if the obstacle moved and keep the old
+			# synthesis too, so we can continue with the old one
+			if(self.InSynthesisProcedure == True):
+				# take (no) action!
+				#self.control(self.K, self.xinterp, self.uinterp, do_calc=False)
+				continue
+				
 			# if we currently run through an action that is supposed to be 
 			# disabled, then quickly stop!!
 			if(self.slugs._Nsens > 0):
+				# this is basically the fully reactive, so 'F' is assumed otherwise
+				# Nsens would not be > 0 (unless it wasn't synthesized and called with wrong parameter)
 				if(self.funnel_sensors[self.action] == True):
-					print(self.colorize('RED', 'need to do emergency stop'))
+					print(self.colorize('RED', 'need to do emergency stop %d,%d,%d' %() ))
 					self.do_calc = False
+			else:
+				# in normal situation, we'd be here if we chose semi-reactive or graph based
+				if(self.funnel_sensors[self.action] == True):
+					print(self.colorize('RED', 'need to do emergency stop and re-synthesize'))
+					self.do_calc = False
+					if(self.reactive in ['S', 'G']):
+						#import pdb; pdb.set_trace()
+						# we need to re-synthesize a new solution because something that is non-compliant to the spec has happened.
+						# if we don't do this here, slugs might switch to the new cell and tell the robot to move backwards. once
+						# it's there, tell it to move forward and be stuck again.
+						#self.curr_state = self.GetClosestNode(self.pose)
+						print('in a stopped situation: R%d is now in %s (%d) mp=%d, checking sensors again ' %(\
+							  self.idx, self.map_bit_2_label[self.curr_state], self.curr_state, self.action))
+						self.ReSynthesizeSpec()
+					else:
+						pass
 
 			# take action!
 			self.control(self.K, self.xinterp, self.uinterp, do_calc=self.do_calc)
@@ -410,7 +457,6 @@ class Jackal:
 						break;
 					next_ell -= 1
 
-			#import pdb; pdb.set_trace()
 			# check if we're in the next funnel (and overflow when in the final one) and if next action
 			# is self.STAY_IN_PLACE, keep polling until it's unstuck. if we stopped in the middle, check until you have
 			# a different action to take
@@ -420,9 +466,10 @@ class Jackal:
 					# change the funnel in slugs (setpos) to the actual location it is currently at
 					# to get a better chance to get a new route
 					self.curr_state = self.GetClosestNode(self.pose)
-					print('in a stopped situation: R%d is now in %s (%d), checking sensors again ' %(self.idx, self.map_bit_2_label[self.curr_state], \
-																					self.curr_state))
-					self.funnel_sensors = self.SenseEnvironment() # sensing might be different now because we might be far from first ellipse
+					print('in a stopped situation: R%d is now in %s (%d), checking sensors again ' %(\
+						  self.idx, self.map_bit_2_label[self.curr_state], self.curr_state))
+					# sensing might be different now because we might be far from first ellipse
+					self.funnel_sensors = self.SenseEnvironment() 				
 					# reset the position in slugs
 					self.curr_state, self.action = self.slugs.SetInitialPos(self.curr_state, self.funnel_sensors)
 					self.curr_ell = self.FindNextValidEllipse(self.action)
@@ -453,11 +500,12 @@ class Jackal:
 						print(self.colorize('GREEN', 'R%d is re-routing with action=%d ...' %(self.idx, self.action)) )
 						if(self.next_action==self.STAY_IN_PLACE):
 						# we're stuck for now, check again later
-							print(self.colorize('YELLOW', 'oh no, R%d got \'stay in place\' for next action (%d)' %(self.idx, \
-																												   self.STAY_IN_PLACE)) )
+							print(self.colorize('YELLOW', 'oh no, R%d got \'stay in place\' for next action (%d)' %\
+												(self.idx, self.STAY_IN_PLACE)))
 					else:
 						# it's still in do not calculate new controls
 						print(self.colorize('RED', 'R%d is still getting stay in place action ...' %self.idx) )
+							
 			elif(self.next_action == self.STAY_IN_PLACE):
 				if(self.msg_num - self.timer > 1*self.MEAS_FS):
 					# if we still don't have any progress after 10*1/100 seconds (msg_num is in gazebo's framerate), then try resetting with 
@@ -474,6 +522,14 @@ class Jackal:
 					else:
 						print(self.colorize('YELLOW', 'R%d is still getting stay in place (but we\'re not there yet) ...' %self.idx) )
 			elif (self.CheckInNextFunnel(self.map_bit_2_label[self.next_state], self.next_action) == True):
+				#advance the next goal
+				if(self.goals[self.goal] == self.curr_state):
+					print(self.colorize('GREEN', 'Passed through a goal!'))
+					self.goal += 1
+					#reset counter
+					if( self.goal >= len(self.goals) ):
+						self.goal = 0
+
 				self.funnel_timer = self.msg_num
 				#rospy.loginfo
 				print('R%d reached funnel %d (%s) with action %d' \
@@ -513,7 +569,8 @@ class Jackal:
 					# we're stuck for now, check again later
 					#import pdb; pdb.set_trace()
 					#self.do_calc = False
-					print(self.colorize('YELLOW', 'oh no, R%d got \'stay in place\' for next action (%d)' %(self.idx,self.STAY_IN_PLACE)) )
+					print(self.colorize('YELLOW', 'oh no, R%d got \'stay in place\' for next action (%d)' %\
+										(self.idx,self.STAY_IN_PLACE)) )
 
 			# GUY TODO, remove when done with debugging
 			if((self.msg_num - self.funnel_timer > 15*self.MEAS_FS) and (self.disable_debug == False)):
@@ -521,7 +578,8 @@ class Jackal:
 				print(self.next_action)
 				print(self.pose)
 				find_non_zero = self.FindNextValidEllipse(self.next_action)
-				S, ellipse_pose = self.GetCoordAndEllipseFromLabel(self.map_bit_2_label[self.next_state], self.next_action, find_non_zero)
+				S, ellipse_pose = self.GetCoordAndEllipseFromLabel(self.map_bit_2_label[self.next_state], \
+																   self.next_action, find_non_zero)
 				print( self.InEllipse(S, ellipse_pose, pose=self.pose) )
 				import pdb; pdb.set_trace() 
 			
@@ -535,9 +593,13 @@ class Jackal:
 	def SenseEnvironment(self, funnel=None):
 		tic = timer()
 		# doesn't do anything if we run in a single mode robot
-		if(self.slugs._Nsens > 0):
+		#GUY: added support for Nsens=0 too. CHECK
+		if(self.slugs._Nsens >= 0):
 			# reset the measurements
-			funnel_sensors = dict(zip(range(self.slugs._Nsens), [False]*self.slugs._Nsens))
+			#import pdb; pdb.set_trace()
+			#funnel_sensors = dict(zip(range(self.slugs._Nout), [False]*self.slugs._Nout)) # Nout is a problem because it's bits
+			funnel_sensors = dict(zip(range(self.Nactions), [False]*self.Nactions)) #workaround 
+			self.blocking_obs = [[]]*self.Nactions #keep holding the locations of blocking obstacles
 			# the funnel you're currently in
 			if(funnel == None):
 				# here we're checking sensor for the actual location of the robot
@@ -576,6 +638,7 @@ class Jackal:
 						#overlaps = self.InEllipse(S, ellipse_pose, pose=adv_pose)
 						if(overlaps == True):
 							funnel_sensors[mp_i] = True
+							self.blocking_obs[mp_i] = adv_pose
 							if(self.action == mp_i):
 								# do less printing on screen
 								print('Robot #%d caused funnel %d to be blocked (ellipse %d)' %(r, mp_i, S_i))
@@ -593,9 +656,10 @@ class Jackal:
 						overlaps = gf.TestIntersectionRectangleEllipse(box_approx_of_robot, e)
 						if(overlaps == True):
 							funnel_sensors[mp_i] = True
+							self.blocking_obs[mp_i] = adv_pose
 							if(self.action == mp_i):
 								# do less printing on screen, only if it is blocking us
-								print('%s caused funnel %d to be blocked (ellipse %d)' %(obs, mp_i, S_i))
+								print('%s caused funnel %d to be blocked (ellipse %d, R=%d)' %(obs, mp_i, S_i, self.curr_state))
 							#import pdb; pdb.set_trace()
 							break
 					#means something already occupied it so no need to check other things as well
@@ -609,7 +673,188 @@ class Jackal:
 			toc = timer()
 			self._sensing_function_time = toc-tic
 			return {}
-							
+
+	# get the cells that would be blocked by a specific obstacle
+	def FindAllIntersectingCells(self, obstacle_region, obstacle_pose):
+		tic = timer()
+		intersecting_cells = []
+		adjacent_cells = []
+		
+		center_cell = self.map_bit_2_label[obstacle_region]
+		orient, xs, ys = [int(s) for s in re.findall(r'-?\d+\.?\d*', center_cell)] # extract first ellipse pose
+ 
+		# check only cells in the vicinity and not the whole workspace because it makes no sense
+		bloat_dim = int(np.ceil(FL_L*2.0)*2)
+		for rot in range(4):
+			for x in range(np.max([0, xs-bloat_dim]), xs+bloat_dim):
+				for y in range(np.max([0, ys-bloat_dim]), ys+bloat_dim):
+					adjacent_cells.append('H%dX%dY%d'%(rot,x,y)) 
+		
+		# bloat the obstacle to account its dimensions
+		box_approx_of_robot  = gf.Rectangle(obstacle_pose[:2], FL_L*2.0, FL_L*2.0)
+		
+		# go over all cells
+		mp = 0
+		ell  = self.FindNextValidEllipse(mp)
+		for cell in adjacent_cells:
+			S, ellipse_pose = self.GetCoordAndEllipseFromLabel(cell, mp, ell) #the first ellipse is the "cell"
+			S = S[:2,:2]
+			ellipse_pose = ellipse_pose[:2]
+			e = gf.Ellipse(ellipse_pose, S)
+			
+			overlaps = gf.TestIntersectionRectangleEllipse(box_approx_of_robot, e)
+			if(overlaps):
+				# store them as cell numbers
+				try:
+					intersecting_cells.append(self.map_label_2_bit[cell])
+				except:
+					# if the cell is out of bounds or on a static obstacle which was removed from the graph
+					pass
+			else:
+				print('%s is not intersecting the obstacle' %(cell))
+		
+		toc = timer()
+		#self._sensing_function_time = toc-tic
+		return intersecting_cells
+		
+	# if we get here it means we found an obstacle and we need to rewrite a spec such that
+	# this blocked motion is not allowed
+	def ReSynthesizeSpec(self):
+		if(self.reactive == 'S'):
+			self.InSynthesisProcedure = True
+			# send the new order of goals to reach (because we might have completed some goals already)
+			'''
+			# option a: (not good at all) just remove the motion primitives that were blocked
+			# it is not good because we can get blocked standing in a different cell
+			current_pose = []
+			current_pose.append(self.curr_state)
+			self.curr_state = self.GetClosestNode(self.pose)
+			current_pose.append(self.curr_state)
+			
+			blocked_funnels_pre = []
+			blocked_funnels_post = []
+			for key, bf in self.funnel_sensors.items():
+				if(bf):
+					blocked_funnels_pre.append(key)
+			#get new restricitions
+			self.funnel_sensors = self.SenseEnvironment()
+			for key, bf in self.funnel_sensors.items():
+				if(bf):
+					blocked_funnels_post.append(key)
+			
+			blocked_funnels = []
+			blocked_funnels.append(blocked_funnels_pre)
+			blocked_funnels.append(blocked_funnels_post)
+			'''
+			'''
+			# option b: (not good at all) block the regions intersecting with the obstacle .
+			# if the obstacle wasn't in the last ellipse of the blocked motion primitive, the specification
+			# won't do anything with it because it only knows the initial region and final region
+			current_pose = self.GetClosestNode(self.pose)
+			print('in terms of location, closest region R=%d' %current_pose)
+			blocked_funnels = []
+			unique_regions = []
+			for i, obs_pose in enumerate(self.blocking_obs):
+				if (obs_pose != []):
+					obstacle_region = self.GetClosestNode(obs_pose)
+					# only deal with a new obstacle, don't count same obstacle twice even if it affected two motion primitives
+					if(obstacle_region not in unique_regions):
+						print('robot in R=%d, obstacle in R=%d: (%.2f,%.2f,%.2f)' % \
+							  (current_pose, obstacle_region,obs_pose[0],obs_pose[1],obs_pose[2]))
+						unique_regions.append(obstacle_region)
+						closeby_regions = self.FindAllIntersectingCells(obstacle_region, obs_pose)
+						blocked_funnels.append(closeby_regions)
+			goals = []
+			for i in range(self.goal, len(self.goals)):
+				goals.append(self.goals[i])
+			for i in range(0, self.goal):
+				goals.append(self.goals[i])
+
+			# use the same spec file, just add in the information that something is blocked
+			UpdateRestrictionSlugsInputFile(current_pose, blocked_funnels, goals, self.idx, filename=self.MAP)
+			'''
+			# option c: (good, but is it best i can do?) create the structuredslugs again with a do not enter zone
+			# about the new obstacle
+			
+			current_pose = self.GetClosestNode(self.pose)
+			goals = []
+			nxt_goal = self.goal - 1 #it's because the slugsin file already shifts one by itself
+			prv_goal = self.goal
+			if(nxt_goal < 0):
+				nxt_goal = len(self.goals)
+				
+			for i in range(nxt_goal, len(self.goals)):
+				goals.append(self.goals_ic[i])
+			for i in range(0, nxt_goal):
+				goals.append(self.goals_ic[i])
+			no_enter = self.nez[:] # copy the original no enter zones
+			# add fictitious no_enter_zones around the problematic obstacles
+			unique_regions = []
+			for i, obs_pose in enumerate(self.blocking_obs):
+				if (obs_pose != []):
+					obstacle_region = self.GetClosestNode(obs_pose)
+					# only deal with a new obstacle, don't count same obstacle twice even if it affected two motion primitives
+					if(obstacle_region not in unique_regions):
+						print('robot in R=%d, obstacle in R=%d: (%.2f,%.2f,%.2f)' % \
+							  (current_pose, obstacle_region,obs_pose[0],obs_pose[1],obs_pose[2]))
+						unique_regions.append(obstacle_region)
+						# add the no enter zone, bloat by FL_L
+						no_enter.append(box(obs_pose[0]-FL_L, obs_pose[1]-FL_L, obs_pose[0]+FL_L, obs_pose[1]+FL_L))
+						
+			#import pdb; pdb.set_trace()
+			CreateSlugsInputFile(self.G, [goals], self.mps, no_enter, self.total_robots, \
+						robot_idx=self.idx, filename=self.MAP, ext_xgrid=self.W_xgrid, ext_ygrid=self.W_ygrid, \
+						ext_pix2m=1.0, ext_ic=current_pose, map_label_2_bit=self.map_label_2_bit) 
+			#import pdb; pdb.set_trace()
+			self.slugs.Shutdown()
+			# here we have a new slugsin file, so re-load slugs
+			self.slugs = SlugsInterface(self.SYNTH_AUTOMATA_FILE + ('_r%d' %self.idx), simulate=False, slugsLink = self.SLUGS_DIR)
+			if(not self.slugs.enabled):
+				print('Cannot re-create slugs interface.')
+				self.InSynthesisProcedure = False
+				return False
+			
+			print('Successfully re-loaded slugs.')
+			self.slugs.DiscoverInputs()
+			self.slugs.DiscoverOutputs()
+			self.slugs.DiscoverGoals()
+			self.slugs.GetInitialPos()
+			#import pdb; pdb.set_trace()
+			#reset all the variables concerning the new situation
+			self.curr_state, self.action = self.slugs.GetNumericState()
+			#self.goals = goals[:] # copy using slicing
+			self.goal = prv_goal
+			self.logger_state.debug('%d;%s;%d' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
+			# now, get the new next state
+			if(self.action == self.STAY_IN_PLACE):
+				print('oh no, R%d starts with action stay in place' %(self.idx))
+				self.next_state =  self.curr_state
+				self.do_calc = False
+			else:
+				self.do_calc = True
+				for key, val in self.G[self.map_bit_2_label[self.curr_state]].items():
+					if( val['motion'] == self.action):
+						self.next_state = self.map_label_2_bit[key]
+						break
+			self.next_state, self.next_action = \
+				self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
+			print('R%d starts in region %s (%d)' %(self.idx, self.map_bit_2_label[self.curr_state],self.curr_state))
+			self.N_ellipse = len(self.mps[self.action]['V'])
+			self.curr_ell  = self.FindNextValidEllipse(self.action)
+			self.K         = self.mps[self.action]['K'][self.curr_ell]
+			self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][self.curr_ell], \
+											self.map_bit_2_label[self.curr_state])
+			self.x_ref_hires = self.mps[self.action]['xtraj']
+			self.u_ref = self.mps[self.action]['unom'][self.curr_ell]
+			self.u_ref_hires = self.mps[self.action]['utraj']
+			#import pdb; pdb.set_trace()
+		elif(self.reactive == 'G'):
+			pass
+		
+		self.InSynthesisProcedure = False
+		return True
+	
+	
 	def telemetry(self):
 		# telemetry
 		now = rospy.get_rostime()
@@ -916,9 +1161,9 @@ if __name__ == '__main__':
 	parser.add_argument('--x0', type=str, default='',
 					help='initial x position')
 	parser.add_argument('--y0', type=str, default='',
-					help='initial x position')
+					help='initial y position')
 	parser.add_argument('--teta0', type=str, default='',
-					help='initial x position')
+					help='initial z position')
 	args = parser.parse_args()
 	print('Controller for Jackal%d' %args.i)
 	list_obs = args.obs.split(',')
@@ -931,7 +1176,7 @@ if __name__ == '__main__':
 		pos0 = [float(args.x0), float(args.y0), float(args.teta0)]
 
 	rospy.init_node('run_jackal_%d' %args.i)#, log_level=rospy.DEBUG)
-	J = Jackal(args.i, args.n, list_obs, first_goal_for_gazebo=pos0)
+	J = Jackal(args.i, args.n, list_obs, first_goal_for_gazebo=pos0, reactive='S')
 
 	try:
 		#rospy.spin()

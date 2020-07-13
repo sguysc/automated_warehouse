@@ -805,9 +805,19 @@ class GUI:
 		robot_goals = spec['robot%d'%robot_num]
 		total_robots = spec['active_robots']
 		list_obs = obstacles.split(',')
+		# 1- full reactive; 2- semi-reactive, re-synth whenever obstacle comes in; 3- only use graph search
+		reactive_option = self.synth_opt.get()
+		if(reactive_option==1):
+			reactive_option = 'F'
+		elif(reactive_option==2):
+			reactive_option = 'S'
+		else:
+			reactive_option = 'G'
 
 		rospy.init_node('run_jackal_%d' %robot_num)#, log_level=rospy.DEBUG)
-		self.RobotObjects.update({robot_num: mn.Jackal(robot_num, total_robots, list_obs, first_goal_for_gazebo=robot_goals['goal1'])})
+		self.RobotObjects.update({robot_num: mn.Jackal(robot_num, total_robots, list_obs, \
+													   first_goal_for_gazebo=robot_goals['goal1'], \
+													   reactive=reactive_option)})
 
 		try:
 			#rospy.spin()

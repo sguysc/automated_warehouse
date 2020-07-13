@@ -254,8 +254,13 @@ def GenerateAdjacentCells(mp, rotmat, orient, i1, j1, i2, j2, X, Y ):
 	
 # function that decides if an obstacle-free path exist between start and end point
 # taking into account the width of the funnels
-def IsPathFree(mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, ymax, ax, box_center=None, initial_ell=-1, end_ell=-1):
-	global pix2m
+def IsPathFree(mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, ymax, ax, box_center=None, \
+			   initial_ell=-1, end_ell=-1, ext_pix2m=None):
+	if(ext_pix2m == None):
+		global pix2m
+	else:
+		pix2m = ext_pix2m
+	
 	# check if you're not going out of bounds (it's fast, but doesn't account for a U-turn!)
 	if( (xe < xmin) or (xe > xmax) ):
 		return False
@@ -546,9 +551,21 @@ def FindPathBetweenGoals(G, goals):
 	return paths
 
 # conversion from arbitrary location on map to the closest funnel (location & orientation)
-def GetNodeLabel(pose):
-	global W_xgrid
-	global W_ygrid
+def GetNodeLabel(pose, ext_xgrid=[None], ext_ygrid=[None], ext_pix2m=None):
+	if(None in ext_xgrid):
+		global W_xgrid
+	else:
+		W_xgrid = ext_xgrid
+	if(None in ext_ygrid):
+		global W_ygrid
+	else:
+		W_ygrid = ext_ygrid
+	if(ext_pix2m == None):
+		global pix2m
+	else:
+		pix2m = ext_pix2m
+	#global W_xgrid
+	#global W_ygrid
 
 	orient = int(np.round( pose[2] / (math.pi/2.0) ) % 4)  # what quadrant you're closest to
 	label = 'H' + str(orient) + 'X' + str(find_nearest(W_xgrid, pix2m*pose[0])) + \
@@ -747,6 +764,93 @@ def UpdateGoalsSlugsInputFile(goals, robot_num, filename='map_funnel'):
 	new_file.close()
 
 	print('done.')
+	'''
+	print('Converting to slugsin ...')
+	try:
+		resource.setrlimit(resource.RLIMIT_STACK, (2**29,-1))
+	except ValueError:
+		pass # Cannot increase limit
+	sys.setrecursionlimit(10**6)
+	sys.stdout = open(filename + '_r' + str(robot_num) + '.slugsin', "w") # the compiler function is just printing on screen
+	slugscomp.performConversion(filename + '_r' + str(robot_num) + '.structuredslugs', False)
+	sys.stdout = sys.__stdout__  # convert back to printing on screen
+	'''
+	Convert2Slugsin(filename, [robot_num])
+	print('done.')
+	
+	toc = timer()
+	print('Creating structuredslugs & converting to slugsin file took %.2f[sec]' %(toc-tic))
+	
+	return map_label_2_bit
+
+# generates the specification file for slugs (decentralized) 
+def UpdateRestrictionSlugsInputFile(initial_pose, blocked_funnels, goals, robot_num, filename='map_funnel'):
+	# if this is called then it means we only update the goals so we assume the mapping is correct
+	# so we just load it from file
+	#dbfile = open(filename + '.label2bit', 'rb')
+	#map_label_2_bit = dill.load(dbfile)
+	#dbfile.close()
+	tic = timer()
+	start_label = {}
+	finish_label = {}
+	
+	print('Updating the structured slugs file ...')
+	# in this function, the goals are already the cell numbers	
+	N = len(goals)
+	#print('Start at: %s' %(GetNodeLabel(goals[0, :])))
+	start_label['r%d' %robot_num] = []
+	finish_label['r%d' %robot_num] = []
+	for i in range(N):
+		start = goals[i]
+		if(i == N-1):
+			finish = goals[0] # complete the cycle
+		else:
+			finish = goals[i+1]
+		start_label['r%d' %robot_num].append(goals[i])
+		finish_label['r%d' %robot_num].append(finish)
+
+	f = open(filename + '_r' + str(robot_num) + '.structuredslugs', 'r')
+	full_file = f.read()
+	# because nothing changes in the spec besides the init and liveness,
+	# we just edit those specific parts and not compute again intersections with no-enter zones etc.
+	i1 = full_file.find('[SYS_LIVENESS]') + 15
+	i2 = full_file.find('[SYS_INIT]') - 1
+	i3 = full_file.find('[ENV_INIT]') + 11
+	i4 = full_file.find('[SYS_TRANS]') + 12
+	i5 = i3 + full_file[i3:].find('\n') + 1
+	i6 = full_file.find('##') + 3
+	
+	#import pdb; pdb.set_trace()
+	new_restrictions = ''
+	if(i6 == 2):
+		# because if it fails it will find -1, but we add +3 to it
+		i6 = len(full_file)
+		new_restrictions = '##\n'
+
+	new_text = full_file[0:i1] 
+	cyc_goals = start_label['r%d' %robot_num]
+	for g in cyc_goals:
+		new_text = new_text + 'R=%d\n' %( g )
+	
+	new_text = new_text + full_file[i2:i3]
+	new_text = new_text + 'R=%d\n' %( initial_pose ) #the actual current position
+	
+	new_text = new_text + full_file[i5:i6]
+	
+	for i, batch in enumerate(blocked_funnels):
+		for bf in batch:
+			new_restrictions = new_restrictions + ('!(R=%d)\n' %(bf))
+		
+	new_text = new_text + new_restrictions
+	
+	f.close()
+
+	new_file = open(filename + '_r' + str(robot_num) + '.structuredslugs', 'w')
+	new_file.write(new_text)
+	new_file.close()
+	#import pdb; pdb.set_trace()
+	print('done.')
+	'''
 	print('Converting to slugsin ...')
 	try:
 		resource.setrlimit(resource.RLIMIT_STACK, (2**29,-1))
@@ -757,17 +861,29 @@ def UpdateGoalsSlugsInputFile(goals, robot_num, filename='map_funnel'):
 	slugscomp.performConversion(filename + '_r' + str(robot_num) + '.structuredslugs', False)
 	sys.stdout = sys.__stdout__  # convert back to printing on screen
 	print('done.')
-	
+	'''
+	Convert2Slugsin(filename, [robot_num])
 	toc = timer()
 	print('Creating structuredslugs & converting to slugsin file took %.2f[sec]' %(toc-tic))
 	
-	return map_label_2_bit
+	#return map_label_2_bit
 
 # generates the specification file for slugs (decentralized) 
-def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funnel'):
-	global W_xgrid
-	global W_ygrid
-	
+def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, filename='map_funnel', \
+						 ext_xgrid=[None], ext_ygrid=[None], ext_pix2m=None, ext_ic=None, map_label_2_bit={}):
+	if(None in ext_xgrid):
+		global W_xgrid
+	else:
+		W_xgrid = ext_xgrid
+	if(None in ext_ygrid):
+		global W_ygrid
+	else:
+		W_ygrid = ext_ygrid
+	if(ext_pix2m == None):
+		global pix2m
+	else:
+		pix2m = ext_pix2m
+		
 	tic = timer()
 	
 	Nnodes = nx.number_of_nodes(G)
@@ -778,11 +894,7 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 	
 	print('Creating the structured slugs file ...')
 	
-	robots_num = len(goals)
-	mult = int(np.ceil(np.log2(robots_num)))
-	# self robot funnels would be taking original index and multiply by two (shl: 1)
-	# existence of a robot/obstacle in funnel i would be taking original index and multiply by two (shl: 1) + 1 
-	# all in all, we added 1 variable
+	#robots_num = len(goals)
 	
 	for r in range(robots_num):
 		goals_r = np.array(goals[r])
@@ -796,28 +908,42 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 				finish = goals_r[0, :] # complete the cycle
 			else:
 				finish = goals_r[i+1, :]
-			start_label['r%d' %r].append(GetNodeLabel(start))
-			finish_label['r%d' %r].append(GetNodeLabel(finish))
+			start_label['r%d' %r].append(GetNodeLabel(start,ext_xgrid=W_xgrid, ext_ygrid=W_ygrid,ext_pix2m=pix2m))
+			finish_label['r%d' %r].append(GetNodeLabel(finish,ext_xgrid=W_xgrid, ext_ygrid=W_ygrid,ext_pix2m=pix2m))
 			#print('Then go to: %s' %(finish_label[-1]))
 	
-	map_label_2_bit = {}
-	node_count = 0
-	for node in G:
-		map_label_2_bit.update({node: node_count})
-		node_count += 1
-		## this was an attempt to not include nodes that don't have children (dead-ends)
-		## but it needs to be handled with care. doesn't work at the moment
-		#children = G.neighbors(node) #list of successor nodes of parent
-		#if(children.__length_hint__()>0):
-		#	map_label_2_bit.update({node: node_count})
-		#	node_count = node_count + 1
-		#else:
-		#	#this node is a dead-end so we might as well just not include it
-		#	pass
+	if(len(map_label_2_bit)==0):
+		#map_label_2_bit = {}
+		node_count = 0
+		ext_map_l2b = False
+		for node in G:
+			map_label_2_bit.update({node: node_count})
+			node_count += 1
+			## this was an attempt to not include nodes that don't have children (dead-ends)
+			## but it needs to be handled with care. doesn't work at the moment
+			#children = G.neighbors(node) #list of successor nodes of parent
+			#if(children.__length_hint__()>0):
+			#	map_label_2_bit.update({node: node_count})
+			#	node_count = node_count + 1
+			#else:
+			#	#this node is a dead-end so we might as well just not include it
+			#	pass
+	else:
+		# use the same structure you currently have
+		node_count = len(map_label_2_bit)
+		ext_map_l2b = True
+		
 	full_file = ''
-	for self_r in range(robots_num):
+	if (robot_idx == None):
+		robot_vec = range(robots_num)
+		reuse_spec = True
+	else:
+		robot_vec = [robot_idx]
+		reuse_spec = False
+		
+	for self_r in robot_vec:
 		with open(filename + '_r' + str(self_r) + '.structuredslugs', 'w+') as f: 	
-			if(self_r>0):
+			if((self_r>0) and (reuse_spec == True) and (full_file != '')):
 				# because nothing changes in the spec besides the init and liveness,
 				# we just edit those specific parts and not compute again intersections with no-enter zones etc.
 				i1 = full_file.find('[SYS_LIVENESS]') + 15
@@ -840,6 +966,7 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 				continue
 			# structured slugs
 			f.write('[INPUT]\n') 
+			#import pdb; pdb.set_trace()
 			other_robots = np.setdiff1d(np.arange(0,robots_num), np.array([self_r]) )
 			total_actions    = len(MP) 
 			
@@ -894,7 +1021,7 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 					#if(map_label_2_bit[parent] == 1290): #'H1X12Y6'
 					#	import pdb; pdb.set_trace()
 					out_of_no_enter = IsPathFree(MP[mp_num], no_enter, GetRotmat(orient), orient, W_xgrid[xs], W_ygrid[ys], 0, 0, \
-									  -10e6, 10e6, -10e6, 10e6, 0 ) #the last 7 parameters don't really matter here
+									  -10e6, 10e6, -10e6, 10e6, 0, ext_pix2m=pix2m ) #the last 7 parameters don't really matter here
 					if(out_of_no_enter):
 						# good, does not intersect the no-entry zones. need to check if other robots do not interfere
 						#f.write('(R=%d & (R%d=%d) & mp=%d)->(R\'=%d)\n' %(\
@@ -1034,7 +1161,10 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 			f.write('\n')
 			
 			f.write('[ENV_INIT]\n')
-			f.write('R=%d\n' %( map_label_2_bit[start_label['r%d' %self_r][0]] )) 
+			if(ext_ic == None):
+				f.write('R=%d\n' %( map_label_2_bit[start_label['r%d' %self_r][0]] )) 
+			else:
+				f.write('R=%d\n' %( ext_ic )) 
 			# need to change this, either to have no specific start point, or, start at the current location,
 			# or have some mechanism to get from current location to start position
 			#for r in other_robots:
@@ -1074,6 +1204,7 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 				full_file = f.read()
 		
 	print('done.')
+	'''
 	print('Converting to slugsin ...')
 	try:
 		resource.setrlimit(resource.RLIMIT_STACK, (2**29,-1))
@@ -1085,16 +1216,34 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, filename='map_funne
 		slugscomp.performConversion(filename + '_r' + str(self_r) + '.structuredslugs', False)
 		sys.stdout = sys.__stdout__  # convert back to printing on screen
 	print('done.')
-	
+	'''
+	Convert2Slugsin(filename, robot_vec) #range(robots_num))
 	# store for easy access when running realtime
-	dbfile = open(filename + '.label2bit', 'wb')
-	dill.dump(map_label_2_bit, dbfile)
-	dbfile.close()
+	if(ext_map_l2b == False):
+		dbfile = open(filename + '.label2bit', 'wb')
+		dill.dump(map_label_2_bit, dbfile)
+		dbfile.close()
 	
 	toc = timer()
 	print('Creating structuredslugs & converting to slugsin file took %.2f[sec]' %(toc-tic))
 
 	return map_label_2_bit
+
+
+# convert to slugsin.
+def Convert2Slugsin(filename, robots_num):
+	print('Converting to slugsin ...')
+	try:
+		resource.setrlimit(resource.RLIMIT_STACK, (2**29,-1))
+	except ValueError:
+		pass # Cannot increase limit
+	sys.setrecursionlimit(10**6)
+	for self_r in robots_num:
+		sys.stdout = open(filename + '_r' + str(self_r) + '.slugsin', "w") # the compiler function is just printing on screen
+		slugscomp.performConversion(filename + '_r' + str(self_r) + '.structuredslugs', False)
+		sys.stdout = sys.__stdout__  # convert back to printing on screen
+	print('done.')
+
 
 # get a complete synthesized controller for our spec.
 def CheckRealizeability(robots_num, filename='map_funnel', robot_num=-1):
