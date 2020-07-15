@@ -27,9 +27,8 @@ import rospy
 if(SIMULATION):
 	from geometry_msgs.msg import Twist, TransformStamped, Vector3Stamped
 	from gazebo_msgs.msg import ModelStates, ModelState
-
 else:
-	from geometry_msgs.msg import Twist, PoseStamped, Pose2D
+	from geometry_msgs.msg import Twist, PoseStamped, Pose2D, TransformStamped
 	from nav_msgs.msg import Odometry
 	from sensor_msgs.msg import Imu
 
@@ -198,7 +197,7 @@ class Jackal:
 		# use this break point as a synchronizer between multiple runs
 		# (not working well with the GUI.py)
 		#first_goal_for_gazebo = [0.7, -2.2, 1.57]
-		if(first_goal_for_gazebo == None):
+		if(first_goal_for_gazebo == None or SIMULATION == False):
 			print('Press c to start ...')
 			import pdb; pdb.set_trace()
 		else:
@@ -271,15 +270,23 @@ class Jackal:
 			#self.control_pub  = rospy.Publisher('/jackal_velocity_controller/cmd_vel', Twist, queue_size=1) #Jackal
 			self.control_pub  = rospy.Publisher('/cmd_vel', Twist, queue_size=1) #Jackal
 			# get data
-			self.sensors1_sub = rospy.Subscriber("/mocap_node/Jackal%d/pose" %self.idx, PoseStamped, self.measurement_cb)
+			# optitrack
+			#self.sensors1_sub = rospy.Subscriber("/mocap_node/Jackal%d/pose" %self.idx, PoseStamped, self.measurement_cb)
+			# vicon
+			self.sensors1_sub = rospy.Subscriber("/vicon/jackal%d/jackal%d" %(self.idx,self.idx), TransformStamped, self.measurement_cb)
 			self.other_sensors_sub = []
 			for i in self.other_robots_arr:
 				self.others_pose.update({i: np.zeros(3)}) # add a dictionary slot for every one
 				# send the extra parameter of which one are you
-				self.other_sensors_sub.append(rospy.Subscriber("/mocap_node/Jackal%d/pose" %(i+1), PoseStamped, self.other_meas_cb, i))
+				# optitrack
+				#self.other_sensors_sub.append(rospy.Subscriber("/mocap_node/Jackal%d/pose" %(i+1), PoseStamped, self.other_meas_cb, i))
+				# vicon
+				self.other_sensors_sub.append(rospy.Subscriber("/vicon/jackal%d/jackal%d" %(i+1,i+1), TransformStamped, self.other_meas_cb, i))
 			for obs in self.list_obs:
 				self.others_pose.update({i: np.zeros(3)}) # add a dictionary slot for any obstacle
-				self.other_sensors_sub.append(rospy.Subscriber("/mocap_node/%s/pose" %(obs), PoseStamped, self.other_meas_cb, obs))
+				# optitrack
+				#self.other_sensors_sub.append(rospy.Subscriber("/mocap_node/%s/pose" %(obs), PoseStamped, self.other_meas_cb, obs))
+				self.other_sensors_sub.append(rospy.Subscriber("/vicon/%s/%s" %(obs,obs), TransformStamped, self.other_meas_cb, i))
 			
 			self.sensors2_sub = rospy.Subscriber("/imu/data", Imu, self.imu_cb)
 			self.sensors3_sub = rospy.Subscriber("/jackal_velocity_controller/odom", Odometry, self.odom_cb)
@@ -346,10 +353,19 @@ class Jackal:
 					self.others_pose[obs] = np.array([-1000., -1000., 0.0])
 		else:
 			#import pdb; pdb.set_trace()
-			pose   = msg.pose.position
-			pose.x = pose.x*self.ft2m
-			pose.y = pose.y*self.ft2m
-			Q      = msg.pose.orientation
+			try:
+				# optitrack - PoseStamped
+				pose   = msg.pose.position
+				pose.x = pose.x*self.ft2m
+				pose.y = pose.y*self.ft2m
+				Q      = msg.pose.orientation
+			except:
+				# vicon - TransformStamped
+				pose   = msg.transform.translation
+				pose.x = pose.x # this is already in [m]
+				pose.y = pose.y # this is already in [m]
+				Q      = msg.transform.rotation
+			
 			# get the rates in the same rate as the pose
 			self.linvel = self.last_linvel
 			self.rotvel = self.last_rotvel
@@ -366,11 +382,20 @@ class Jackal:
 
 	def other_meas_cb(self, msg, i):
 		#import pdb; pdb.set_trace()
-		pose   = msg.pose.position
-		pose.x = pose.x*self.ft2m
-		pose.y = pose.y*self.ft2m
-		Q      = msg.pose.orientation
-		angles = euler_from_quaternion([Q.x, Q.y, Q.z, Q.w])
+		try:
+			# optitrack - PoseStamped
+			pose   = msg.pose.position
+			pose.x = pose.x*self.ft2m
+			pose.y = pose.y*self.ft2m
+			Q      = msg.pose.orientation
+			angles = euler_from_quaternion([Q.x, Q.y, Q.z, Q.w])
+		except:
+			# vicon - TransformStamped
+			pose   = msg.transform.translation
+			pose.x = pose.x  # this is already in [m]
+			pose.y = pose.y  # this is already in [m]
+			Q      = msg.transform.rotation
+			angles = euler_from_quaternion([Q.x, Q.y, Q.z, Q.w])
 
 		# GUY, TODO: find a way to know which jackal is broadcasting
 		self.others_pose[i] = np.array([pose.x, pose.y, angles[2]]) # (gazebo->mine axes match )

@@ -25,13 +25,15 @@ from shapely.geometry import Polygon, box, Point
 #from mayavi import mlab
 
 from StructuredSlugsParser import compiler as slugscomp
+import global_parameters as glob_p
 
 #MAP_KIND = 'raymond'
-MAP_KIND = 'lab' 
+#MAP_KIND = 'lab' 
+MAP_KIND = glob_p.MAP_KIND #'lab_case' 
 # I commented this because it causes loading DubinsPlantCar which tries to load pydrake which is unavailable in the lab computer
 #from DubinsPlantCar import CELL_SIZE
 #CELL_SIZE = 0.25 #[m]
-CELL_SIZE = 0.4 #[m]
+CELL_SIZE = glob_p.CELL_SIZE #0.4 #[m]
 #CELL_SIZE = 1.25 #[m]
 
 import GeometryFunctions as gf_old
@@ -1249,7 +1251,7 @@ def Convert2Slugsin(filename, robots_num):
 def CheckRealizeability(robots_num, filename='map_funnel', robot_num=-1):
 	tic = timer()
 	controllers = []
-	slugsLink = '/home/cornell/Tools/slugs_ltl_stack/src/slugs'
+	slugsLink = glob_p.slugsLink # '/home/gs679/Tools/slugs/src/slugs'
 	realizable = True
 	robot_fail_number = -1
 	#import pdb; pdb.set_trace()

@@ -1,0 +1,32 @@
+
+git clone -b LTL_stack https://git@github.com/wongkaiweng/slugs.git
+cd slugs/src
+make
+
+git clone -b multi_robot https://github.com/sguysc/automated_warehouse.git
+
+sudo pip install --user dill
+sudo pip install --user networkx
+sudo pip install --user tqdm
+sudo pip install --user shapely
+sudo pip install --user python-fcl
+sudo pip install --user subprocess32
+sudo pip install --user --upgrade numpy
+sudo pip install --user -U matplotlib==2.1.2
+
+edit /etc/hosts to add the jackal computers
+199.168.1.153   vicon
+199.168.1.153   asl-vicon
+
+install vicon ros node:
+source /opt/ros/kinetic/setup.bash
+mkdir -p vicon/src
+cd vicon/src
+git clone https://github.coecis.cornell.edu/asl/vicon_bridge.git
+cd ..
+catkin_make
+source devel/setup.bash
+roslaunch vicon_bridge vicon.launch
+
+
+export ROS_MASTER_URI=http://<JACKALS_IPS>:11311/

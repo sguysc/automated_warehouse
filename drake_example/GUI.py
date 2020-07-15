@@ -25,85 +25,85 @@ import warehouse_map as wm
 import rospy
 
 if os.name == 'posix' and sys.version_info[0] < 3:
-    import subprocess32 as subprocess
+	import subprocess32 as subprocess
 else:
-    import subprocess
-	
+	import subprocess
+
 CELL_SIZE = 0.4
 
 # helper class to get callbacks from text 
 class CustomText(tk.Text):
-    def __init__(self, *args, **kwargs):
-        """A text widget that report on internal widget commands"""
-        tk.Text.__init__(self, *args, **kwargs)
+	def __init__(self, *args, **kwargs):
+		"""A text widget that report on internal widget commands"""
+		tk.Text.__init__(self, *args, **kwargs)
 
-        # create a proxy for the underlying widget
-        self._orig = self._w + "_orig"
-        self.tk.call("rename", self._w, self._orig)
-        self.tk.createcommand(self._w, self._proxy)
+		# create a proxy for the underlying widget
+		self._orig = self._w + "_orig"
+		self.tk.call("rename", self._w, self._orig)
+		self.tk.createcommand(self._w, self._proxy)
 
-    def _proxy(self, command, *args):
-        cmd = (self._orig, command) + args
-        result = self.tk.call(cmd)
+	def _proxy(self, command, *args):
+		cmd = (self._orig, command) + args
+		result = self.tk.call(cmd)
 
-        if command in ("insert", "delete", "replace"):
-            self.event_generate("<<TextModified>>")
+		if command in ("insert", "delete", "replace"):
+			self.event_generate("<<TextModified>>")
 
-        return result
-	
+		return result
+
 class CreateToolTip(object):
-    """
-    create a tooltip for a given widget
-    """
-    def __init__(self, widget, text='widget info'):
-        self.waittime = 500     #miliseconds
-        self.wraplength = 180   #pixels
-        self.widget = widget
-        self.text = text
-        self.widget.bind("<Enter>", self.enter)
-        self.widget.bind("<Leave>", self.leave)
-        self.widget.bind("<ButtonPress>", self.leave)
-        self.id = None
-        self.tw = None
+	"""
+	create a tooltip for a given widget
+	"""
+	def __init__(self, widget, text='widget info'):
+		self.waittime = 500     #miliseconds
+		self.wraplength = 180   #pixels
+		self.widget = widget
+		self.text = text
+		self.widget.bind("<Enter>", self.enter)
+		self.widget.bind("<Leave>", self.leave)
+		self.widget.bind("<ButtonPress>", self.leave)
+		self.id = None
+		self.tw = None
 
-    def enter(self, event=None):
-        self.schedule()
+	def enter(self, event=None):
+		self.schedule()
 
-    def leave(self, event=None):
-        self.unschedule()
-        self.hidetip()
+	def leave(self, event=None):
+		self.unschedule()
+		self.hidetip()
 
-    def schedule(self):
-        self.unschedule()
-        self.id = self.widget.after(self.waittime, self.showtip)
+	def schedule(self):
+		self.unschedule()
+		self.id = self.widget.after(self.waittime, self.showtip)
 
-    def unschedule(self):
-        id = self.id
-        self.id = None
-        if id:
-            self.widget.after_cancel(id)
+	def unschedule(self):
+		id = self.id
+		self.id = None
+		if id:
+			self.widget.after_cancel(id)
 
-    def showtip(self, event=None):
-        x = y = 0
-        x, y, cx, cy = self.widget.bbox("insert")
-        x += self.widget.winfo_rootx() + 25
-        y += self.widget.winfo_rooty() + 20
-        # creates a toplevel window
-        self.tw = tk.Toplevel(self.widget)
-        # Leaves only the label and removes the app window
-        self.tw.wm_overrideredirect(True)
-        self.tw.wm_geometry("+%d+%d" % (x, y))
-        label = tk.Label(self.tw, text=self.text, justify='left',
-                       background="#ffffff", relief='solid', borderwidth=1,
-                       wraplength = self.wraplength)
-        label.pack(ipadx=1)
+	def showtip(self, event=None):
+		x = y = 0
+		x, y, cx, cy = self.widget.bbox("insert")
+		x += self.widget.winfo_rootx() + 25
+		y += self.widget.winfo_rooty() + 20
+		# creates a toplevel window
+		self.tw = tk.Toplevel(self.widget)
+		# Leaves only the label and removes the app window
+		self.tw.wm_overrideredirect(True)
+		self.tw.wm_geometry("+%d+%d" % (x, y))
+		label = tk.Label(self.tw, text=self.text, justify='left',
+						background="#ffffff", relief='solid', borderwidth=1,
+						wraplength = self.wraplength)
+		label.pack(ipadx=1)
 
-    def hidetip(self):
-        tw = self.tw
-        self.tw= None
-        if tw:
-            tw.destroy()
-			
+	def hidetip(self):
+		tw = self.tw
+		self.tw= None
+		if tw:
+			tw.destroy()
+
 class GUI:
 	def __init__(self):
 
@@ -210,6 +210,8 @@ class GUI:
 		filemenu.add_command(label='Open...', command=self.OpenMapDialog) 
 		filemenu.add_command(label='Save', command=self.SaveSpecification) 
 		filemenu.add_separator() 
+		filemenu.add_command(label='Refresh', command=self.Refresh) 
+		filemenu.add_separator() 
 		filemenu.add_command(label='Exit', command=self.check_before_quitting) 
 		helpmenu = tk.Menu(self.menu) 
 		self.menu.add_cascade(label='Help', menu=helpmenu) 
@@ -226,6 +228,7 @@ class GUI:
 
 		self.main.mainloop() 
 	
+
 	def check_before_quitting(self):
 		if tkMessageBox.askokcancel("Quit", "Do you really wish to quit?"):
 			self.main.destroy()
@@ -374,7 +377,12 @@ class GUI:
 
 	def ShowAbout(self):
 		tkMessageBox.showinfo("About", "Warehouse Automation in a Day\n\nGuy Scher\nJune 2020")
-	
+
+	def Refresh(self):
+		if(not self.file_loaded):
+			return
+		self.OpenMapDialog(file=self.filename)
+
 	# show open file dialog and load the selected file
 	def OpenMapDialog(self, file=None):
 		if(file is None):
@@ -609,7 +617,7 @@ class GUI:
 		self.edit_fixed_spec.insert(tk.END, json.dumps(self.spec['no_entrance']))
 		
 		self.edit_fixed_spec.insert(tk.END, '}\n')
-			
+
 	# load the goals in an easier way
 	def LoadTask(self):
 		'''

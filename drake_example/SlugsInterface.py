@@ -6,9 +6,12 @@ import subprocess, os, sys
 import dill
 import re
 
+import global_parameters as glob_p
+
 # helper class to get transitions from funnel to funnel using interactive mode
 class SlugsInterface():
-	def __init__(self, name, simulate=False, slugsLink = '/home/cornell/Tools/slugs_ltl_stack/src/slugs'):
+	#'/home/gs679/Tools/slugs/src/slugs', '/home/cornell/Tools/slugs_ltl_stack/src/slugs'
+	def __init__(self, name, simulate=False, slugsLink = None):
 		self.name = name # name of map file to synthesize
 		self.realizeable = True
 		self.enabled = False # is the class operational? did initialize and are realizeable
@@ -24,6 +27,9 @@ class SlugsInterface():
 		self._NGoals = 0 # total number of goals
 		self._simulate = simulate
 		self._state_index = 0
+		
+		if(slugsLink == None):
+			slugsLink = glob_p.slugsLink
 		
 		if(self._simulate == False):
 			# open the process of slugs and keep it open to recieve commands
