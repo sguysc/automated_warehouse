@@ -68,9 +68,9 @@ if __name__ == '__main__':
 	try:
 		rospy.init_node('guy', anonymous=True)
 		rate = rospy.Rate(10) # 10hz
-		idx = 1
-		#rospy.Subscriber("/vicon/jackal%d/jackal%d" %(idx,idx), TransformStamped, my_callback)
-		rospy.Subscriber("/vicon/hat1_1/hat1_1", TransformStamped, my_callback)
+		idx = 3
+		rospy.Subscriber("/vicon/jackal%d/jackal%d" %(idx,idx), TransformStamped, my_callback)
+		#rospy.Subscriber("/vicon/hat1_1/hat1_1", TransformStamped, my_callback)
 
 		while not rospy.is_shutdown():
 			rate.sleep()

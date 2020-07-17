@@ -20,6 +20,7 @@ import tkMessageBox, tkFileDialog, Tkconstants
 
 import ROSUtilities as RU
 import warehouse_map as wm
+import global_parameters as glob_p
 
 # ROS stuff
 import rospy
@@ -29,7 +30,7 @@ if os.name == 'posix' and sys.version_info[0] < 3:
 else:
 	import subprocess
 
-CELL_SIZE = 0.4
+CELL_SIZE = glob_p.CELL_SIZE #0.4
 
 # helper class to get callbacks from text 
 class CustomText(tk.Text):

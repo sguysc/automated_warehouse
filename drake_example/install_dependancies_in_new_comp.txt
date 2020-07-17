@@ -17,6 +17,10 @@ sudo pip install --user -U matplotlib==2.1.2
 edit /etc/hosts to add the jackal computers
 199.168.1.153   vicon
 199.168.1.153   asl-vicon
+#199.168.1.21    jackal1
+199.168.1.70    jackal1
+199.168.1.22    jackal2
+199.168.1.24    jackal3
 
 install vicon ros node:
 source /opt/ros/kinetic/setup.bash
@@ -26,7 +30,25 @@ git clone https://github.coecis.cornell.edu/asl/vicon_bridge.git
 cd ..
 catkin_make
 source devel/setup.bash
+(export ROS_MASTER_URI=http://<JACKALS_IPS>:11311/)
 roslaunch vicon_bridge vicon.launch
 
+install snowflake (ssh gui)
 
+ssh adminstrator@jackal1.local
+sudo nano /etc/hosts
+add the ip for the computer you are logging-in with
+edit /etc/ros/setup.bash
+add:
+export ROS_MASTER_URI=http://localipaddress:11311
+export ROS_HOSTNAME=localipaddress
+export ROS_NAMESPACE=/jackal<#>
+
+i couldn't get jackal3 to connect to jackal1 on startup, so you have to ssh, kill roscore, and re-run
+roslaunch jackal_base base.launch
+
+in the workstation computer:
 export ROS_MASTER_URI=http://<JACKALS_IPS>:11311/
+and run Jackal.py or whatever
+
+

@@ -17,10 +17,11 @@ from warehouse_map import LoadMP, GetSpecificControl, find_nearest, GetRotmat, F
 from SlugsInterface import *
 import GeometryFunctions_fcl as gf
 from shapely.geometry import box
+import global_parameters as glob_p
 #import GeometryFunctions as gf
 
 # lab or simulation
-SIMULATION = True
+SIMULATION = False
 
 # ROS stuff
 import rospy
@@ -39,16 +40,16 @@ from tf2_geometry_msgs import do_transform_vector3
 
 # class to handle a single robot comm.
 class Jackal:
-	def __init__(self, idx, total_robots, list_obs, first_goal_for_gazebo=None, reactive='F'):
+	def __init__(self, idx, total_robots, list_obs=[], list_robots=[], first_goal_for_gazebo=None, reactive='F'):
 		self.ROBOT_TYPE = 'JACKAL'  # original JACKAL run with 'roslaunch jackal_gazebo jackal_world.launch'
 		#self.ROBOT_TYPE = 'TURTLEBOT'
 		#self.MAP    = 'raymond'
-		self.MAP    = 'lab'
-		self.umax   = 0.3 #1.0  # jackal m/sec     5.0
+		self.MAP    = glob_p.MAP_KIND
+		self.umax   = glob_p.UMAX #0.3 #1.0  # jackal m/sec     5.0
 		self.delmax = 45.0*np.pi/180.0  # jackal rad   30.0 80
 		self.MEAS_FS = 100 #100 for gazebo, not sure about vicon/optitrack
 
-		self.SLUGS_DIR = '/home/cornell/Tools/slugs_ltl_stack/src/slugs'
+		self.SLUGS_DIR = glob_p.slugsLink #'/home/cornell/Tools/slugs_ltl_stack/src/slugs'
 		self.MAP_FILE = self.MAP + '.map'
 		self.SYNTH_AUTOMATA_FILE = self.MAP
 		self.MP_MAP_FILE = self.MAP + '.pickle'
@@ -57,7 +58,7 @@ class Jackal:
 		self.ft2m   = 0.3048
 		self.CALIB_ANGLE_THETA = 0.0 #I've changed the angle in the optitrack software-0.16 #[rad]
 
-		mp_file=self.MP_MAP_FILE
+		mp_file =self.MP_MAP_FILE
 		map_file=self.MAP_FILE
 		aut_file=self.SYNTH_AUTOMATA_FILE
 		l2b_file=self.LABEL2BIT_FILE
@@ -85,13 +86,17 @@ class Jackal:
 		
 		self.all_topics_loaded = False
 		self.Fs = 10 # main/control loop frequency
-		self.idx = idx
+		if(SIMULATION == False):
+			self.idx = idx - 1 #this is because in the lab the index is +1
+		else:
+			self.idx = idx
 		self.total_robots = total_robots
 		self.msg_num = 0
 		self.pose   = np.array([0.0, 0.0, 0.0*np.pi/2.0]) #None
 		self.other_robots_arr = np.setdiff1d(np.arange(0,self.total_robots),[self.idx]) # everything but ego
 		self.others_pose = {} #np.zeros((total_robots-1,3)) # in index 0 will be the first robot that is not ego
 		self.list_obs = list_obs
+		self.list_robots = list_robots
 		self.linvel = None
 		self.rotvel = None
 		self.last_linvel = None
@@ -121,10 +126,6 @@ class Jackal:
 		# create the funnel path file
 		#self.states_fid = open('../telemetry/r%d_%s.states' %(idx, self.MAP), 'wt')
 
-		# load the slugs solution
-		if(SIMULATION == False):
-			idx -= 1 #this is because in the lab the index is +1
-		
 		self.G = nx.read_gpickle(mp_file)
 		self.mps = LoadMP()
 		self.Nactions = len(self.mps)
@@ -135,7 +136,7 @@ class Jackal:
 		dbfile.close()
 		# the reverse dictionary is also useful
 		self.map_bit_2_label = dict((v, k) for k, v in self.map_label_2_bit.items())
-		goals = map_prop['r%d' %idx]
+		goals = map_prop['r%d' %self.idx]
 		self.goals = []
 		self.goals_ic = []
 		for goal in goals:
@@ -158,7 +159,7 @@ class Jackal:
 		first_goal_for_gazebo = [0.7, -2.2, 1.57]
 		pub = rospy.Publisher('/gazebo/set_model_state', ModelState, queue_size=1)
 		set_first_pose = ModelState()
-		set_first_pose.model_name = 'jackal%d' %idx
+		set_first_pose.model_name = 'jackal%d' %self.idx
 		set_first_pose.pose.position.x    = first_goal_for_gazebo[0]
 		set_first_pose.pose.position.y    = first_goal_for_gazebo[1]
 		q = quaternion_from_euler(0.0, 0.0, first_goal_for_gazebo[2])
@@ -191,7 +192,7 @@ class Jackal:
 		#import pdb; pdb.set_trace()
 		# GUY: changed from Nsens to _Nout due to semi-reactive
 		#self.funnel_sensors = dict(zip(range(self.slugs._Nsens), [False]*self.slugs._Nsens))		
-		self.funnel_sensors = dict(zip(range(self.Nactions), [False]*self.Nactions))		
+		self.funnel_sensors = dict(zip(range(self.Nactions), [False]*self.Nactions))
 		self.blocking_obs = [[]]*self.Nactions #keep holding the locations of blocking obstacles
 		
 		# use this break point as a synchronizer between multiple runs
@@ -206,7 +207,7 @@ class Jackal:
 				pub = rospy.Publisher('/gazebo/set_model_state', ModelState, queue_size=1)
 
 				set_first_pose = ModelState()
-				set_first_pose.model_name = 'jackal%d' %idx
+				set_first_pose.model_name = 'jackal%d' %self.idx
 				set_first_pose.pose.position.x    = first_goal_for_gazebo[0]
 				set_first_pose.pose.position.y    = first_goal_for_gazebo[1]
 				q = quaternion_from_euler(0.0, 0.0, first_goal_for_gazebo[2])
@@ -226,7 +227,10 @@ class Jackal:
 		#import pdb; pdb.set_trace()
 		# now, get the new next state
 		if(self.action == self.STAY_IN_PLACE):
-			print('oh no, R%d starts with action stay in place' %(self.idx))
+			if(self.list_robots == []):
+				print('oh no, R%d starts with action stay in place' %(self.idx))
+			else:
+				print('oh no, R%d (%s) starts with action stay in place' %(self.idx, self.list_robots[self.idx]))
 			self.next_state =  self.curr_state
 			self.do_calc = False
 		else:
@@ -237,7 +241,10 @@ class Jackal:
 		self.next_state, self.next_action = \
 			self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
 		#import pdb; pdb.set_trace()
-		print('R%d starts in region %s (%d)' %(idx, self.map_bit_2_label[self.curr_state],self.curr_state))
+		if(self.list_robots == []):
+			print('R%d starts in region %s (%d)' %(self.idx, self.map_bit_2_label[self.curr_state],self.curr_state))
+		else:
+			print('R%d (%s) starts in region %s (%d)' %(self.idx, self.list_robots[self.idx], self.map_bit_2_label[self.curr_state],self.curr_state))
 
 		#self.N_state  = len(self.states)
 		self.N_ellipse = len(self.mps[self.action]['V'])
@@ -268,12 +275,20 @@ class Jackal:
 				self.others_pose.update({obs: np.zeros(3)}) # add a dictionary slot for any obstacle
 		else:
 			#self.control_pub  = rospy.Publisher('/jackal_velocity_controller/cmd_vel', Twist, queue_size=1) #Jackal
-			self.control_pub  = rospy.Publisher('/cmd_vel', Twist, queue_size=1) #Jackal
+			if(self.list_robots == []):
+				self.control_pub  = rospy.Publisher('/jackal%d/cmd_vel'%(self.idx+1), Twist, queue_size=1) #Jackal
+			else:
+				self.control_pub  = rospy.Publisher('/%s/cmd_vel'%(self.list_robots[self.idx]), Twist, queue_size=1) #Jackal
 			# get data
 			# optitrack
 			#self.sensors1_sub = rospy.Subscriber("/mocap_node/Jackal%d/pose" %self.idx, PoseStamped, self.measurement_cb)
 			# vicon
-			self.sensors1_sub = rospy.Subscriber("/vicon/jackal%d/jackal%d" %(self.idx,self.idx), TransformStamped, self.measurement_cb)
+			if(self.list_robots == []):
+				# because we changed idx to be the index, and not represent the name which starts at jackal1 in the lab
+				self.sensors1_sub = rospy.Subscriber("/vicon/jackal%d/jackal%d" %(self.idx+1,self.idx+1), TransformStamped, self.measurement_cb)
+			else:
+				self.sensors1_sub = rospy.Subscriber("/vicon/%s/%s" %(self.list_robots[self.idx],self.list_robots[self.idx]), \
+													 TransformStamped, self.measurement_cb)
 			self.other_sensors_sub = []
 			for i in self.other_robots_arr:
 				self.others_pose.update({i: np.zeros(3)}) # add a dictionary slot for every one
@@ -281,15 +296,24 @@ class Jackal:
 				# optitrack
 				#self.other_sensors_sub.append(rospy.Subscriber("/mocap_node/Jackal%d/pose" %(i+1), PoseStamped, self.other_meas_cb, i))
 				# vicon
-				self.other_sensors_sub.append(rospy.Subscriber("/vicon/jackal%d/jackal%d" %(i+1,i+1), TransformStamped, self.other_meas_cb, i))
+				if(self.list_robots == []):
+					self.other_sensors_sub.append(rospy.Subscriber("/vicon/jackal%d/jackal%d" %(i+1,i+1), TransformStamped, self.other_meas_cb, i))
+				else:
+					self.other_sensors_sub.append(rospy.Subscriber("/vicon/%s/%s" %( \
+						self.list_robots[i],self.list_robots[i]), TransformStamped, self.other_meas_cb, i))
+					
 			for obs in self.list_obs:
-				self.others_pose.update({i: np.zeros(3)}) # add a dictionary slot for any obstacle
+				self.others_pose.update({obs: np.zeros(3)}) # add a dictionary slot for any obstacle
 				# optitrack
 				#self.other_sensors_sub.append(rospy.Subscriber("/mocap_node/%s/pose" %(obs), PoseStamped, self.other_meas_cb, obs))
-				self.other_sensors_sub.append(rospy.Subscriber("/vicon/%s/%s" %(obs,obs), TransformStamped, self.other_meas_cb, i))
+				self.other_sensors_sub.append(rospy.Subscriber("/vicon/%s/%s" %(obs,obs), TransformStamped, self.other_meas_cb, obs))
 			
-			self.sensors2_sub = rospy.Subscriber("/imu/data", Imu, self.imu_cb)
-			self.sensors3_sub = rospy.Subscriber("/jackal_velocity_controller/odom", Odometry, self.odom_cb)
+			if(self.list_robots == []):
+				self.sensors2_sub = rospy.Subscriber("/jackal%d/imu/data"%(self.idx+1), Imu, self.imu_cb)
+				self.sensors3_sub = rospy.Subscriber("/jackal%d/jackal_velocity_controller/odom"%(self.idx+1), Odometry, self.odom_cb)
+			else:
+				self.sensors2_sub = rospy.Subscriber("/%s/imu/data"%(self.list_robots[self.idx]), Imu, self.imu_cb)
+				self.sensors3_sub = rospy.Subscriber("/%s/jackal_velocity_controller/odom"%(self.list_robots[self.idx]), Odometry, self.odom_cb)
 
 		if(False):
 			self.xinterp, self.uinterp = self.GetClosestInterpPoint(self.x_ref_hires, self.map_bit_2_label[self.curr_state])
@@ -396,6 +420,12 @@ class Jackal:
 			pose.y = pose.y  # this is already in [m]
 			Q      = msg.transform.rotation
 			angles = euler_from_quaternion([Q.x, Q.y, Q.z, Q.w])
+			
+			#GUY: JUST TO DEBUG, REMOVE IT IMEDIATELY
+			#import pdb; pdb.set_trace()
+			#if(i==0):
+			#	pose.x -= 20.  # this is already in [m]
+			#	pose.y -= 20.  # this is already in [m]
 
 		# GUY, TODO: find a way to know which jackal is broadcasting
 		self.others_pose[i] = np.array([pose.x, pose.y, angles[2]]) # (gazebo->mine axes match )
@@ -410,6 +440,7 @@ class Jackal:
 			if(self.external_shutdown):
 				self.external_shutdown = False
 				break
+			
 			#import pdb; pdb.set_trace()
 			#if(self.msg_num > 120*1000):
 			#	import pdb; pdb.set_trace()
@@ -423,7 +454,7 @@ class Jackal:
 
 			# populates the funnel restriction for the ego-robot
 			self.funnel_sensors = self.SenseEnvironment()
-			
+			#import pdb; pdb.set_trace()
 			# re-synthesizing takes a while, so during this time, wait and do nothing
 			# GUY: in the future, perhaps check if the obstacle moved and keep the old
 			# synthesis too, so we can continue with the old one
@@ -431,14 +462,15 @@ class Jackal:
 				# take (no) action!
 				#self.control(self.K, self.xinterp, self.uinterp, do_calc=False)
 				continue
-				
+			
 			# if we currently run through an action that is supposed to be 
 			# disabled, then quickly stop!!
 			if(self.slugs._Nsens > 0):
 				# this is basically the fully reactive, so 'F' is assumed otherwise
 				# Nsens would not be > 0 (unless it wasn't synthesized and called with wrong parameter)
 				if(self.funnel_sensors[self.action] == True):
-					print(self.colorize('RED', 'need to do emergency stop %d,%d,%d' %() ))
+					print(self.colorize('RED', 'need to do emergency stop R%d (%s), state=%s(%d), mp=%d' %(self.idx, self.list_robots[self.idx], \
+												self.map_bit_2_label[self.curr_state], self.curr_state, self.action) ))
 					self.do_calc = False
 			else:
 				# in normal situation, we'd be here if we chose semi-reactive or graph based
@@ -1183,6 +1215,8 @@ if __name__ == '__main__':
 					help='an integer for total amount of robots on the field')
 	parser.add_argument('--obs', type=str, default='',
 					help='names of other obstacles, comma separated, must have ROS messages (gazebo or on the field)')
+	parser.add_argument('--robots', type=str, default='',
+					help='id numbers of other robots, in order and comma separated, must have ROS messages (gazebo or on the field)')
 	parser.add_argument('--x0', type=str, default='',
 					help='initial x position')
 	parser.add_argument('--y0', type=str, default='',
@@ -1191,7 +1225,15 @@ if __name__ == '__main__':
 					help='initial z position')
 	args = parser.parse_args()
 	print('Controller for Jackal%d' %args.i)
-	list_obs = args.obs.split(',')
+	if(args.obs == ''):
+		list_obs = []
+	else:
+		list_obs = args.obs.split(',')
+	
+	if(args.robots == ''):
+		list_robots = []
+	else:
+		list_robots = args.robots.split(',')
 	#import pdb; pdb.set_trace()
 	
 	pos0 = None
@@ -1201,7 +1243,7 @@ if __name__ == '__main__':
 		pos0 = [float(args.x0), float(args.y0), float(args.teta0)]
 
 	rospy.init_node('run_jackal_%d' %args.i)#, log_level=rospy.DEBUG)
-	J = Jackal(args.i, args.n, list_obs, first_goal_for_gazebo=pos0, reactive='S')
+	J = Jackal(args.i, args.n, list_obs=list_obs, list_robots=list_robots, first_goal_for_gazebo=pos0, reactive='F')
 
 	try:
 		#rospy.spin()
