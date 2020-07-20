@@ -8,6 +8,7 @@ import dill
 import networkx as nx
 import re
 import sys
+import os
 import logging # can't handle the ros logging :(
 from time import localtime, strftime, sleep
 from timeit import default_timer as timer
@@ -1242,6 +1243,12 @@ if __name__ == '__main__':
 	else:
 		pos0 = [float(args.x0), float(args.y0), float(args.teta0)]
 
+	# connect to the relevant master (just because I couldn't make the slaves to connect and run :( )
+	if(list_robots == []):
+		os.environ['ROS_MASTER_URI'] = 'http://jackal%d:11311/'%args.i
+	else:
+		os.environ['ROS_MASTER_URI'] = 'http://%s:11311/'%(list_robots[args.i-1] )
+	
 	rospy.init_node('run_jackal_%d' %args.i)#, log_level=rospy.DEBUG)
 	J = Jackal(args.i, args.n, list_obs=list_obs, list_robots=list_robots, first_goal_for_gazebo=pos0, reactive='F')
 

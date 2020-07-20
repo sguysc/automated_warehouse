@@ -4,6 +4,8 @@
 
 import numpy as np
 import rospy
+import os
+import argparse
 
 from geometry_msgs.msg import Twist, PoseStamped, Pose2D, TransformStamped
 from tf.transformations import euler_from_quaternion, quaternion_inverse
@@ -66,9 +68,15 @@ def TransformVectorToBody(vect, q):
 
 if __name__ == '__main__':
 	try:
-		rospy.init_node('guy', anonymous=True)
+		parser = argparse.ArgumentParser()
+		parser.add_argument("-i","--index", help="robot number")
+		args = parser.parse_args()
+		idx = int(args.index)
+		os.environ['ROS_MASTER_URI'] = 'http://jackal%d:11311/'%idx
+		
+		rospy.init_node('guy_vicon_%d'%idx, anonymous=True)
 		rate = rospy.Rate(10) # 10hz
-		idx = 3
+		#idx = 3
 		rospy.Subscriber("/vicon/jackal%d/jackal%d" %(idx,idx), TransformStamped, my_callback)
 		#rospy.Subscriber("/vicon/hat1_1/hat1_1", TransformStamped, my_callback)
 
