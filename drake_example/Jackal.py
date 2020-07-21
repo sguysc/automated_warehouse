@@ -177,8 +177,9 @@ class Jackal:
 		# new, interface the interactive mode of slugs
 		tic = timer()
 		#just make sure that we have the correct slugsin that corresponds to the structuredslugs
-		print(self.colorize('YELLOW','the following is to make sure the input is valid. can remove this at some point in the future'))
-		Convert2Slugsin(aut_file, [self.idx]) 
+		if(reactive == 'S'):
+			print(self.colorize('YELLOW','the following is to make sure the input is valid. can remove this at some point in the future'))
+			Convert2Slugsin(aut_file, [self.idx]) 
 		
 		self.slugs = SlugsInterface(aut_file + ('_r%d' %self.idx), simulate=False, slugsLink = self.SLUGS_DIR)
 		toc = timer()
@@ -258,6 +259,7 @@ class Jackal:
 		self.u_ref_hires = self.mps[self.action]['utraj']
 	
 		#import pdb; pdb.set_trace()
+		far_away_array = np.array([-100.,-100.,0.])
 		# handle the ROS topics
 		if(SIMULATION):
 			# send commands
@@ -271,9 +273,9 @@ class Jackal:
 			#self.sensors_sub = rospy.Subscriber('/gazebo/default/pose/info', ModelStates, self.measurement_cb)
 			self.CALIB_ANGLE_THETA = 0.0 # don't apply this to simulation mode
 			for i in self.other_robots_arr:
-				self.others_pose.update({i: np.zeros(3)}) # add a dictionary slot for every one
+				self.others_pose.update({i: far_away_array}) # add a dictionary slot for every one
 			for obs in self.list_obs:
-				self.others_pose.update({obs: np.zeros(3)}) # add a dictionary slot for any obstacle
+				self.others_pose.update({obs: far_away_array}) # add a dictionary slot for any obstacle
 		else:
 			#self.control_pub  = rospy.Publisher('/jackal_velocity_controller/cmd_vel', Twist, queue_size=1) #Jackal
 			if(self.list_robots == []):
@@ -292,7 +294,7 @@ class Jackal:
 													 TransformStamped, self.measurement_cb)
 			self.other_sensors_sub = []
 			for i in self.other_robots_arr:
-				self.others_pose.update({i: np.zeros(3)}) # add a dictionary slot for every one
+				self.others_pose.update({i: far_away_array}) # add a dictionary slot for every one
 				# send the extra parameter of which one are you
 				# optitrack
 				#self.other_sensors_sub.append(rospy.Subscriber("/mocap_node/Jackal%d/pose" %(i+1), PoseStamped, self.other_meas_cb, i))
@@ -304,7 +306,7 @@ class Jackal:
 						self.list_robots[i],self.list_robots[i]), TransformStamped, self.other_meas_cb, i))
 					
 			for obs in self.list_obs:
-				self.others_pose.update({obs: np.zeros(3)}) # add a dictionary slot for any obstacle
+				self.others_pose.update({obs: far_away_array}) # add a dictionary slot for any obstacle
 				# optitrack
 				#self.other_sensors_sub.append(rospy.Subscriber("/mocap_node/%s/pose" %(obs), PoseStamped, self.other_meas_cb, obs))
 				self.other_sensors_sub.append(rospy.Subscriber("/vicon/%s/%s" %(obs,obs), TransformStamped, self.other_meas_cb, obs))
@@ -345,6 +347,7 @@ class Jackal:
 		self.all_topics_loaded = True
 		#print(self.msg_num)
 		self.msg_num += 1
+		reject_measurement = False
 
 		if(SIMULATION):
 			# decipher the msg comm. coming from gazebo (ground truth). later, switch to vicon in lab
@@ -390,6 +393,11 @@ class Jackal:
 				pose.x = pose.x # this is already in [m]
 				pose.y = pose.y # this is already in [m]
 				Q      = msg.transform.rotation
+				#vicon has some slips, so reject the measurement if it wasn't good
+				if( np.abs(pose.x-self.pose[0])>0.5 or np.abs(pose.y-self.pose[1])>0.5 ):
+					# do not ignore the first measurements, otherwise you have nothing
+					if(self.msg_num > 5):
+						reject_measurement = True
 			
 			# get the rates in the same rate as the pose
 			self.linvel = self.last_linvel
@@ -403,7 +411,10 @@ class Jackal:
 		theta = np.unwrap([self.pose[2], theta])
 
 		# store for other uses
-		self.pose = np.array([pose.x, pose.y, theta[1]]) # (gazebo->mine axes match )
+		if(not reject_measurement):
+			self.pose = np.array([pose.x, pose.y, theta[1]]) # (gazebo->mine axes match )
+		else:
+			print(self.colorize('YELLOW','R%d, rejecting measurement from vicon' %self.idx))
 
 	def other_meas_cb(self, msg, i):
 		#import pdb; pdb.set_trace()
@@ -918,15 +929,22 @@ class Jackal:
 		now = rospy.get_rostime()
 		t = now.secs + now.nsecs/1.0E9
 		#rospy.logdebug
+		other = []
+		for key,val in self.others_pose.items():
+			other.append([val[0], val[1]])
+		# GUY: I hardcode and assume that there are at least two "other" objects. this is not generic, change in the future
+		while(len(other) < 2):
+			other.append([-100., -100.])
 		try:
 			self.logger.debug('%.3f;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%d;%d;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;' \
-					 '%.2f;%.2f;%.2f;%.2f;%.2f;%.3f' \
+					 '%.2f;%.2f;%.2f;%.2f;%.2f;%.3f;%.2f;%.2f;%.2f;%.2f' \
 					   %(t, self.msg_num, self.pose[0], self.pose[1], self.pose[2]*180.0/np.pi, \
 						 self.x_ref[0], self.x_ref[1], self.x_ref[2]*180.0/np.pi, self.u_ref[0], self.u_ref[1], \
 						self.curr_state, self.curr_ell, int(self.do_calc), self.action, \
 						self.u[0], self.u[1], self.linvel.x, self.linvel.y, self.linvel.z,\
 						self.rotvel.x, self.rotvel.y, self.rotvel.z, self.xinterp[0],self.xinterp[1],self.xinterp[2]*180.0/np.pi, \
-						self.uinterp[0],self.uinterp[1],self._sensing_function_time))
+						self.uinterp[0],self.uinterp[1],self._sensing_function_time,other[0][0],other[0][1],other[1][0], \
+						 other[1][1]))
 		except:
 			pass
 
@@ -1250,7 +1268,7 @@ if __name__ == '__main__':
 		os.environ['ROS_MASTER_URI'] = 'http://%s:11311/'%(list_robots[args.i-1] )
 	
 	rospy.init_node('run_jackal_%d' %args.i)#, log_level=rospy.DEBUG)
-	J = Jackal(args.i, args.n, list_obs=list_obs, list_robots=list_robots, first_goal_for_gazebo=pos0, reactive='F')
+	J = Jackal(args.i, args.n, list_obs=list_obs, list_robots=list_robots, first_goal_for_gazebo=pos0, reactive='S')
 
 	try:
 		#rospy.spin()

@@ -897,9 +897,17 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 	print('Creating the structured slugs file ...')
 	
 	#robots_num = len(goals)
-	
-	for r in range(robots_num):
-		goals_r = np.array(goals[r])
+	if (robot_idx == None):
+		robot_vec = range(robots_num)
+		reuse_spec = True
+	else:
+		robot_vec = [robot_idx]
+		reuse_spec = False
+		
+	for i, r in enumerate(robot_vec):
+		# this is so gross but it is to support cases where i don't know all the goals of other robots, 
+		# like when running on a single robot in semi-reactive way
+		goals_r = np.array(goals[i])
 		N, __ = goals_r.shape
 		#print('Start at: %s' %(GetNodeLabel(goals[0, :])))
 		start_label['r%d' %r] = []
@@ -936,13 +944,8 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 		ext_map_l2b = True
 		
 	full_file = ''
-	if (robot_idx == None):
-		robot_vec = range(robots_num)
-		reuse_spec = True
-	else:
-		robot_vec = [robot_idx]
-		reuse_spec = False
-		
+
+	#import pdb; pdb.set_trace()
 	for self_r in robot_vec:
 		with open(filename + '_r' + str(self_r) + '.structuredslugs', 'w+') as f: 	
 			if((self_r>0) and (reuse_spec == True) and (full_file != '')):
@@ -969,7 +972,7 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 			# structured slugs
 			f.write('[INPUT]\n') 
 			#import pdb; pdb.set_trace()
-			other_robots = np.setdiff1d(np.arange(0,robots_num), np.array([self_r]) )
+			other_robots = np.setdiff1d(robot_vec, np.array([self_r]) )
 			total_actions    = len(MP) 
 			
 			f.write('R:0...%d\n' %( node_count ) ) # existence of self robot in funnel/region

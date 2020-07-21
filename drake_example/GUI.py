@@ -731,6 +731,8 @@ class GUI:
 				print('There is a problem, there is no path between all the goals.')
 				print('Synthesis will also fail, so try to change the specification.')
 				print('Aborting ...')
+				self.synth_button.configure(text = 'Synthesize')
+				self.main.update()
 				return
 		
 		# create the amount of jackals you want
@@ -746,14 +748,21 @@ class GUI:
 			
 		RU.CreateJackals(map_kind, robots_ic)
 		# only update the section that deals with the goals in case the fixed spec did not change
+		#import pdb; pdb.set_trace()
 		if(self.has_fixed_step_changed): # or 
 			if(reactive_option == 1):
 				map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, goals, MP, no_enter, robots_num, filename=map_kind) #'map_funnel')
 			elif(reactive_option == 2):
-				map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, [goals[robot_num]], MP, no_enter, 1, filename=map_kind) #'map_funnel')
+				map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, [goals[robot_num]], MP, no_enter, 1, \
+														  robot_idx=robot_num, filename=map_kind) 
+				#map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, goals, MP, no_enter, 1, \
+														  
 		else:
 			map_label_2_bit = wm.UpdateGoalsSlugsInputFile(goals, robot_num, filename=map_kind)
 			
+		#G, goals, MP, no_enter, robots_num, robot_idx=None, filename='map_funnel', \
+		#				 ext_xgrid=[None], ext_ygrid=[None], ext_pix2m=None, ext_ic=None, map_label_2_bit={}
+		
 		# the reverse dictionary is useful
 		#map_bit_2_label = dict((v, k) for k, v in map_label_2_bit.items())
 

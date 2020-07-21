@@ -78,7 +78,9 @@ if __name__ == '__main__':
 		rate = rospy.Rate(10) # 10hz
 		#idx = 3
 		rospy.Subscriber("/vicon/jackal%d/jackal%d" %(idx,idx), TransformStamped, my_callback)
+		#rospy.Subscriber("/vicon/jackal2/jackal2", TransformStamped, my_callback)
 		#rospy.Subscriber("/vicon/hat1_1/hat1_1", TransformStamped, my_callback)
+		#rospy.Subscriber("/vicon/Helmet/Helmet", TransformStamped, my_callback)
 
 		while not rospy.is_shutdown():
 			rate.sleep()

@@ -9,8 +9,10 @@
 
 if [ $1 -eq 1 ]
 then
-	./Jackal.py --i $1 --n 2 --robots jackal3,jackal1 #--obs hat1_1
+	#./Jackal.py --i $1 --n 2 --robots jackal1,jackal3 #--obs hat1_1
+	./Jackal.py --i 1 --n 1 --robots jackal1 --obs Helmet
 else
-	./Jackal.py --i $1 --n 2 --robots jackal3,jackal1 #--obs hat1_1
+	./Jackal.py --i $1 --n 2 --robots jackal1,jackal3 #--obs hat1_1
+	#./Jackal.py --i 1 --n 2 --robots jackal3,jackal2 --obs hat1_1
 fi
 
