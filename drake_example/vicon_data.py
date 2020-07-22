@@ -37,8 +37,8 @@ def my_callback(msg):
 	# if we move quadrant, unwrap from the previous angle
 	theta = np.unwrap([g_pose[2], angles[2]])
 	# store for other uses
-	g_pose = np.array([pose.x, pose.y, theta[1]])
-	print('Frame %d: x=%.3f\ty=%.3f\ttheta=%.3f' %(msg_num, g_pose[0], g_pose[1], g_pose[2]))
+	#g_pose = np.array([pose.x, pose.y, theta[1]])
+	print('Frame %d: x=%.3f\ty=%.3f\tz=%.3f\ttheta=%.3f' %(msg_num, pose.x, pose.y, pose.z, theta[1]))
 
 # rotate vectors from world frame to body frame
 '''

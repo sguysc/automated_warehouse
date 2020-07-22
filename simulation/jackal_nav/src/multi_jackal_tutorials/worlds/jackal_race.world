@@ -693,10 +693,10 @@
           </material>
         </visual>
         <collision name='left_side'>
-          <pose frame=>0.600000 -0.495000 0.6 0 -0 0</pose>
+          <pose frame=>0.600000 -0.345000 0.6 0 -0 0</pose>
           <geometry>
             <box>
-              <size>0.02 1.000000 1.2</size>
+              <size>0.02 0.700000 1.2</size>
             </box>
           </geometry>
           <max_contacts>10</max_contacts>
@@ -714,10 +714,10 @@
           </surface>
         </collision>
         <visual name='visual2'>
-          <pose frame=>0.600000 -0.495000 0.6 0 -0 0</pose>
+          <pose frame=>0.600000 -0.345000 0.6 0 -0 0</pose>
           <geometry>
             <box>
-              <size>0.02 1.000000 1.2</size>
+              <size>0.02 0.700000 1.2</size>
             </box>
           </geometry>
           <material>
@@ -728,10 +728,10 @@
           </material>
         </visual>
         <collision name='right_side'>
-          <pose frame=>-0.600000 -0.495000 0.6 0 -0 0</pose>
+          <pose frame=>-0.600000 -0.345000 0.6 0 -0 0</pose>
           <geometry>
             <box>
-              <size>0.02 1.000000 1.2</size>
+              <size>0.02 0.700000 1.2</size>
             </box>
           </geometry>
           <max_contacts>10</max_contacts>
@@ -749,10 +749,10 @@
           </surface>
         </collision>
         <visual name='visual3'>
-          <pose frame=>-0.600000 -0.495000 0.6 0 -0 0</pose>
+          <pose frame=>-0.600000 -0.345000 0.6 0 -0 0</pose>
           <geometry>
             <box>
-              <size>0.02 1.000000 1.2</size>
+              <size>0.02 0.700000 1.2</size>
             </box>
           </geometry>
           <material>
@@ -763,10 +763,10 @@
           </material>
         </visual>
         <collision name='bottom'>
-          <pose frame=>0 -0.495000 0.03 0 -0 0</pose>
+          <pose frame=>0 -0.345000 0.03 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.180000 1.000000 0.06</size>
+              <size>1.180000 0.700000 0.06</size>
             </box>
           </geometry>
           <max_contacts>10</max_contacts>
@@ -784,10 +784,10 @@
           </surface>
         </collision>
         <visual name='visual4'>
-          <pose frame=>0 -0.495000 0.03 0 -0 0</pose>
+          <pose frame=>0 -0.345000 0.03 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.180000 1.000000 0.06</size>
+              <size>1.180000 0.700000 0.06</size>
             </box>
           </geometry>
           <material>
@@ -798,10 +798,10 @@
           </material>
         </visual>
         <collision name='top'>
-          <pose frame=>0 -0.495000 1.19 0 -0 0</pose>
+          <pose frame=>0 -0.345000 1.19 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.180000 1.000000 0.02</size>
+              <size>1.180000 0.700000 0.02</size>
             </box>
           </geometry>
           <max_contacts>10</max_contacts>
@@ -819,10 +819,10 @@
           </surface>
         </collision>
         <visual name='visual5'>
-          <pose frame=>0 -0.495000 1.19 0 -0 0</pose>
+          <pose frame=>0 -0.345000 1.19 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.180000 1.000000 0.02</size>
+              <size>1.180000 0.700000 0.02</size>
             </box>
           </geometry>
           <material>
@@ -833,10 +833,10 @@
           </material>
         </visual>
         <collision name='low_shelf'>
-          <pose frame=>0 -0.495000 0.43 0 -0 0</pose>
+          <pose frame=>0 -0.345000 0.43 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.180000 1.000000 0.02</size>
+              <size>1.180000 0.700000 0.02</size>
             </box>
           </geometry>
           <max_contacts>10</max_contacts>
@@ -854,10 +854,10 @@
           </surface>
         </collision>
         <visual name='visual6'>
-          <pose frame=>0 -0.495000 0.43 0 -0 0</pose>
+          <pose frame=>0 -0.345000 0.43 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.180000 1.000000 0.02</size>
+              <size>1.180000 0.700000 0.02</size>
             </box>
           </geometry>
           <material>
@@ -868,10 +868,10 @@
           </material>
         </visual>
         <collision name='high_shelf'>
-          <pose frame=>0 -0.495000 0.8 0 -0 0</pose>
+          <pose frame=>0 -0.345000 0.8 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.180000 1.000000 0.02</size>
+              <size>1.180000 0.700000 0.02</size>
             </box>
           </geometry>
           <max_contacts>10</max_contacts>
@@ -889,10 +889,10 @@
           </surface>
         </collision>
         <visual name='visual7'>
-          <pose frame=>0 -0.495000 0.8 0 -0 0</pose>
+          <pose frame=>0 -0.345000 0.8 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.180000 1.000000 0.02</size>
+              <size>1.180000 0.700000 0.02</size>
             </box>
           </geometry>
           <material>
@@ -950,10 +950,10 @@
           </material>
         </visual>
         <collision name='left_side'>
-          <pose frame=>0.650000 -0.495000 0.6 0 -0 0</pose>
+          <pose frame=>0.650000 -0.345000 0.6 0 -0 0</pose>
           <geometry>
             <box>
-              <size>0.02 1.000000 1.2</size>
+              <size>0.02 0.700000 1.2</size>
             </box>
           </geometry>
           <max_contacts>10</max_contacts>
@@ -971,10 +971,10 @@
           </surface>
         </collision>
         <visual name='visual2'>
-          <pose frame=>0.650000 -0.495000 0.6 0 -0 0</pose>
+          <pose frame=>0.650000 -0.345000 0.6 0 -0 0</pose>
           <geometry>
             <box>
-              <size>0.02 1.000000 1.2</size>
+              <size>0.02 0.700000 1.2</size>
             </box>
           </geometry>
           <material>
@@ -985,10 +985,10 @@
           </material>
         </visual>
         <collision name='right_side'>
-          <pose frame=>-0.650000 -0.495000 0.6 0 -0 0</pose>
+          <pose frame=>-0.650000 -0.345000 0.6 0 -0 0</pose>
           <geometry>
             <box>
-              <size>0.02 1.000000 1.2</size>
+              <size>0.02 0.700000 1.2</size>
             </box>
           </geometry>
           <max_contacts>10</max_contacts>
@@ -1006,10 +1006,10 @@
           </surface>
         </collision>
         <visual name='visual3'>
-          <pose frame=>-0.650000 -0.495000 0.6 0 -0 0</pose>
+          <pose frame=>-0.650000 -0.345000 0.6 0 -0 0</pose>
           <geometry>
             <box>
-              <size>0.02 1.000000 1.2</size>
+              <size>0.02 0.700000 1.2</size>
             </box>
           </geometry>
           <material>
@@ -1020,10 +1020,10 @@
           </material>
         </visual>
         <collision name='bottom'>
-          <pose frame=>0 -0.495000 0.03 0 -0 0</pose>
+          <pose frame=>0 -0.345000 0.03 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.280000 1.000000 0.06</size>
+              <size>1.280000 0.700000 0.06</size>
             </box>
           </geometry>
           <max_contacts>10</max_contacts>
@@ -1041,10 +1041,10 @@
           </surface>
         </collision>
         <visual name='visual4'>
-          <pose frame=>0 -0.495000 0.03 0 -0 0</pose>
+          <pose frame=>0 -0.345000 0.03 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.280000 1.000000 0.06</size>
+              <size>1.280000 0.700000 0.06</size>
             </box>
           </geometry>
           <material>
@@ -1055,10 +1055,10 @@
           </material>
         </visual>
         <collision name='top'>
-          <pose frame=>0 -0.495000 1.19 0 -0 0</pose>
+          <pose frame=>0 -0.345000 1.19 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.280000 1.000000 0.02</size>
+              <size>1.280000 0.700000 0.02</size>
             </box>
           </geometry>
           <max_contacts>10</max_contacts>
@@ -1076,10 +1076,10 @@
           </surface>
         </collision>
         <visual name='visual5'>
-          <pose frame=>0 -0.495000 1.19 0 -0 0</pose>
+          <pose frame=>0 -0.345000 1.19 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.280000 1.000000 0.02</size>
+              <size>1.280000 0.700000 0.02</size>
             </box>
           </geometry>
           <material>
@@ -1090,10 +1090,10 @@
           </material>
         </visual>
         <collision name='low_shelf'>
-          <pose frame=>0 -0.495000 0.43 0 -0 0</pose>
+          <pose frame=>0 -0.345000 0.43 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.280000 1.000000 0.02</size>
+              <size>1.280000 0.700000 0.02</size>
             </box>
           </geometry>
           <max_contacts>10</max_contacts>
@@ -1111,10 +1111,10 @@
           </surface>
         </collision>
         <visual name='visual6'>
-          <pose frame=>0 -0.495000 0.43 0 -0 0</pose>
+          <pose frame=>0 -0.345000 0.43 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.280000 1.000000 0.02</size>
+              <size>1.280000 0.700000 0.02</size>
             </box>
           </geometry>
           <material>
@@ -1125,10 +1125,10 @@
           </material>
         </visual>
         <collision name='high_shelf'>
-          <pose frame=>0 -0.495000 0.8 0 -0 0</pose>
+          <pose frame=>0 -0.345000 0.8 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.280000 1.000000 0.02</size>
+              <size>1.280000 0.700000 0.02</size>
             </box>
           </geometry>
           <max_contacts>10</max_contacts>
@@ -1146,10 +1146,10 @@
           </surface>
         </collision>
         <visual name='visual7'>
-          <pose frame=>0 -0.495000 0.8 0 -0 0</pose>
+          <pose frame=>0 -0.345000 0.8 0 -0 0</pose>
           <geometry>
             <box>
-              <size>1.280000 1.000000 0.02</size>
+              <size>1.280000 0.700000 0.02</size>
             </box>
           </geometry>
           <material>
@@ -1163,7 +1163,7 @@
         <kinematic>0</kinematic>
         <gravity>1</gravity>
       </link>
-      <pose frame=''>-1.550000 1.700000 0 0 -0 0.000000</pose>
+      <pose frame=''>-1.550000 1.400000 0 0 -0 0.000000</pose>
     </model>
     <state world_name='default'>
       <sim_time>0 615000000</sim_time>
@@ -1231,10 +1231,10 @@
             </link>
           </model>
           <model name='bookshelf_1'>
-            <pose frame=''>-1.550000 1.700000 0 0 -0 0.000000</pose>
+            <pose frame=''>-1.550000 1.400000 0 0 -0 0.000000</pose>
             <scale>1.000000 1.000000 1.000000</scale>
             <link name='link'>
-              <pose frame=''>-1.550000 1.700000 0 0 -0 0.000000</pose>
+              <pose frame=''>-1.550000 1.400000 0 0 -0 0.000000</pose>
               <velocity>0 0 0 0 -0 0</velocity>
               <acceleration>0 0 0 0 -0 0</acceleration>
               <wrench>0 0 0 0 -0 0</wrench>

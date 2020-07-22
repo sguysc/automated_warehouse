@@ -171,11 +171,12 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 						toRot     = (mp['e'][2]-mp['s'][2]) / (90.0*math.pi/180.0)
 						toRot     = (orient+toRot)%4
 						connect2  = connect2/cell
-						
+						# detect backward motions to disable one ways to be ran backwards
+						mp_backward = (mp['e'][0]-mp['s'][0]) < 0.0
 						#if(x==3 and Y==13 and orient==3 and connect2[0][0]):
 						
 						# check if the funnel is not oriented with the one way direction
-						if(IsOneWayCompliant(x, y, orient, int(toRot), toLoc, one_ways)):
+						if(IsOneWayCompliant(x, y, orient, int(toRot), toLoc, one_ways, mp_backward)):
 							# check if funnel is in bounds and does not collide with any obstacle
 							if(IsPathFree(mp, merged_obs_list, rotmat, orient, x, y, toLoc[0], toLoc[1], \
 										  X[0], X[-1], Y[0], Y[-1], ax )):
@@ -329,7 +330,7 @@ def IsPathFree(mp, obstacles, rotmat, orient, xs, ys, xe, ye, xmin, xmax, ymin, 
 			
 	return True
 
-def IsOneWayCompliant(x, y, orient, toRot, toLoc, one_ways):
+def IsOneWayCompliant(x, y, orient, toRot, toLoc, one_ways, mp_backward):
 	#import pdb; pdb.set_trace()
 	pnt = Point(x, y)
 	# check the end position. is it in the restricted zone
@@ -340,6 +341,9 @@ def IsOneWayCompliant(x, y, orient, toRot, toLoc, one_ways):
 			end_in = region.contains(pnt2)
 			if(start_in == True and end_in == True):
 				if(orient != key or toRot != key):
+					return False
+				elif(orient == key and toRot == key and mp_backward):
+					#disable the backwards mps trying to cheat their way
 					return False
 			if(start_in == True and end_in == False):
 				if(orient != key):
@@ -1483,6 +1487,7 @@ if __name__ == "__main__":
 	map_kind = MAP_KIND 
 	
 	MP = LoadMP(fName='MPLibrary.lib')
+	#import pdb; pdb.set_trace()
 	MotionPrimitivesToFile(map_kind, MP)
 	#import pdb; pdb.set_trace()
 	workspace, obs, no_enter, one_ways = ReplicateMap(map_kind=map_kind) #

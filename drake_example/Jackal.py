@@ -12,6 +12,7 @@ import os
 import logging # can't handle the ros logging :(
 from time import localtime, strftime, sleep
 from timeit import default_timer as timer
+from shutil import copyfile
 
 # my stuff
 from warehouse_map import LoadMP, GetSpecificControl, find_nearest, GetRotmat, FL_L, FL_W, UpdateRestrictionSlugsInputFile, Convert2Slugsin, CreateSlugsInputFile
@@ -113,6 +114,7 @@ class Jackal:
 		self.external_shutdown = False
 		self.reactive = reactive # Full, Semi, Graph based
 		self.InSynthesisProcedure = False
+		self.resynth_cnt = 0
 
 		# load the map properties
 		aut = open(map_file, 'r')
@@ -417,7 +419,8 @@ class Jackal:
 			print(self.colorize('YELLOW','R%d, rejecting measurement from vicon' %self.idx))
 
 	def other_meas_cb(self, msg, i):
-		#import pdb; pdb.set_trace()
+		reject_measurement = False
+		
 		try:
 			# optitrack - PoseStamped
 			pose   = msg.pose.position
@@ -432,6 +435,17 @@ class Jackal:
 			pose.y = pose.y  # this is already in [m]
 			Q      = msg.transform.rotation
 			angles = euler_from_quaternion([Q.x, Q.y, Q.z, Q.w])
+			#vicon has some slips, so reject the measurement if it wasn't good
+			if( np.abs(pose.x-self.others_pose[i][0])>0.5 or \
+			    np.abs(pose.y-self.others_pose[i][1])>0.5 ):
+				# do not ignore the first measurements, otherwise you have nothing
+				if(self.msg_num > 5):
+					reject_measurement = True
+				# only accept Helmet if z>1.0m (meaning: I wear it)
+				# GUY, maybe remove in the future
+			if(i == 'Helmet'):
+				if(pose.z < 1.0 and self.msg_num > 5):
+					reject_measurement = True
 			
 			#GUY: JUST TO DEBUG, REMOVE IT IMEDIATELY
 			#import pdb; pdb.set_trace()
@@ -439,8 +453,12 @@ class Jackal:
 			#	pose.x -= 20.  # this is already in [m]
 			#	pose.y -= 20.  # this is already in [m]
 
-		# GUY, TODO: find a way to know which jackal is broadcasting
-		self.others_pose[i] = np.array([pose.x, pose.y, angles[2]]) # (gazebo->mine axes match )
+		# save it only if it is not garbage
+		if(not reject_measurement):
+			self.others_pose[i] = np.array([pose.x, pose.y, angles[2]]) # (gazebo->mine axes match )
+		else:
+			if((i == 'Helmet' and pose.z >= 1.0) or (i != 'Helmet')):
+				print(self.colorize('YELLOW','R%d, rejecting measurement of obstacle from vicon' %self.idx))
 
 	# main loop
 	def Run(self):
@@ -871,6 +889,11 @@ class Jackal:
 						no_enter.append(box(obs_pose[0]-FL_L, obs_pose[1]-FL_L, obs_pose[0]+FL_L, obs_pose[1]+FL_L))
 						
 			#import pdb; pdb.set_trace()
+			#save the last file for reference:
+			copyfile(self.MAP + '_r' + str(self.idx) + '.structuredslugs', \
+					 self.MAP + '_r' + str(self.idx) + '_' + str(self.resynth_cnt) + '.structuredslugs')
+			self.resynth_cnt += 1
+			
 			CreateSlugsInputFile(self.G, [goals], self.mps, no_enter, self.total_robots, \
 						robot_idx=self.idx, filename=self.MAP, ext_xgrid=self.W_xgrid, ext_ygrid=self.W_ygrid, \
 						ext_pix2m=1.0, ext_ic=current_pose, map_label_2_bit=self.map_label_2_bit) 
@@ -1268,7 +1291,7 @@ if __name__ == '__main__':
 		os.environ['ROS_MASTER_URI'] = 'http://%s:11311/'%(list_robots[args.i-1] )
 	
 	rospy.init_node('run_jackal_%d' %args.i)#, log_level=rospy.DEBUG)
-	J = Jackal(args.i, args.n, list_obs=list_obs, list_robots=list_robots, first_goal_for_gazebo=pos0, reactive='S')
+	J = Jackal(args.i, args.n, list_obs=list_obs, list_robots=list_robots, first_goal_for_gazebo=pos0, reactive=glob_p.REACTIVE)
 
 	try:
 		#rospy.spin()

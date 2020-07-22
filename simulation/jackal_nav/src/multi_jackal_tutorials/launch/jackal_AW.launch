@@ -6,8 +6,11 @@
   <arg name="gui"        default="true"/>
   <arg name="rviz"       default="false"/>
   <arg name="ns0"        default="jackal0"/>
+  <arg name="ns1"        default="jackal1"/>
   <arg name="config0"    default="front_laser"/>
   <arg name="config0_id" default="0"/>
+  <arg name="config1"    default="front_laser"/>
+  <arg name="config1_id" default="1"/>
   <arg name="world"      default="jackal_race.world"/>
   
   <!-- Start Gazebo with an empty world. -->
@@ -26,8 +29,19 @@
     <arg name="use_move_base" value="true"/>
     <arg name="use_global_tf" value="false"/>
     <arg name="use_global_ekf" value="true"/>
+    <arg name="x"             value="-1.220000"/>
+    <arg name="y"             value="2.100000"/>
+    <arg name="yaw"           value="0.000000"/>
+  </include>
+  <include file="$(find multi_jackal_base)/launch/jackal_base.launch">
+    <arg name="ns"            value="$(arg ns1)"/>
+    <arg name="config"        value="$(arg config1)"/>
+    <arg name="config_id"     value="$(arg config1_id)"/>
+    <arg name="use_move_base" value="true"/>
+    <arg name="use_global_tf" value="false"/>
+    <arg name="use_global_ekf" value="true"/>
     <arg name="x"             value="1.550000"/>
-    <arg name="y"             value="1.600000"/>
+    <arg name="y"             value="0.700000"/>
     <arg name="yaw"           value="1.570000"/>
   </include>
   
