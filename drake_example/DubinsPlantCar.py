@@ -21,7 +21,11 @@ from pydrake.solvers.mosek import MosekSolver
 # to solve the differential ricatti eqn
 from scipy.integrate import solve_ivp
 
-CELL_SIZE = 1.25 # [m]  Jackal - gazebo, forklift
+import global_parameters as glob_p
+
+
+CELL_SIZE = glob_p.CELL_SIZE #0.4
+#CELL_SIZE = 1.25 # [m]  Jackal - gazebo, forklift
 #CELL_SIZE = 0.40 # [m]  Jackal - gazebo, forklift
 #CELL_SIZE = 0.25 # [m]  Jackal - gazebo, forklift
 
@@ -1526,7 +1530,7 @@ def runFunnel():
 	print('******\nrunning Funnel algorithm ...\n******')
 	
     # Declare pendulum model
-	plant = DubinsCarPlant_[float](umax=0.5, delmax=45.0*math.pi/180.0) #None]  # Default instantiation
+	plant = DubinsCarPlant_[float](umax=glob_p.UMAX, delmax=45.0*math.pi/180.0) #None]  # Default instantiation
 		
 	# Trajectory optimization to get nominal trajectory
 	#x0 = (0.0, 0.0, -math.pi/4.0)  #Initial state that trajectory should start from

@@ -10,6 +10,7 @@ from pydrake.symbolic import Expression
 from shapely.geometry import Polygon, box
 
 from DubinsPlantCar import *
+import global_parameters as glob_p
 
 
 def uturn_motion(x0, xf, tf0, N):
@@ -30,6 +31,35 @@ def CreateFunnels():
 	print('******\nCreating Motion primitives (Funnel algorithm) ...\n******')
 	
 	# (x,y,theta)
+	# Jackal - Lab cell 0.30[m], , umax=0.5, delmax=45, w/ backwards, removed 2 steps forward
+	umax = glob_p.UMAX
+	MotionPrimitives = { \
+			0: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4,  0.00,  0.0), 'kp': 6, 'ex_kp': 6, 'traj': None, 'iter': 5}, \
+			1: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*1,  0.00,  0.0), 'kp': 4, 'ex_kp': 4, 'traj': None, 'iter': 5}, \
+			2: {'s': (0.0, 0.0, 0.0), 'e': (-CELL_SIZE*1,  0.00,  0.0), 'kp': 4, 'ex_kp': 4, 'traj': None, 'iter': 5}, \
+			3: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*3,  CELL_SIZE*1,  0.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': None, 'iter': 8 }, \
+			4: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*3, -CELL_SIZE*1,  0.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': None, 'iter': 5 }, \
+			5: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2,  CELL_SIZE*2,  90.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': None}, \
+			6: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2, 0.01-CELL_SIZE*2, -90.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': None}, \
+			7: {'s': (0.0, 0.0, 0.0), 'e': (0.00,  CELL_SIZE*3,  180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion, 'iter': 3 }, \
+			8: {'s': (0.0, 0.0, 0.0), 'e': (0.00, -CELL_SIZE*3, -180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion, 'iter': 3 }, \
+	}
+	'''
+	# Jackal - Lab cell 0.25[m], , umax=0.5, delmax=45, w/ backwards, removed 2 steps forward
+	umax = glob_p.UMAX
+	MotionPrimitives = { \
+			0: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*4,  0.00,  0.0), 'kp': 6, 'ex_kp': 6, 'traj': None, 'iter': 5}, \
+			1: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*1,  0.00,  0.0), 'kp': 4, 'ex_kp': 4, 'traj': None, 'iter': 5}, \
+			2: {'s': (0.0, 0.0, 0.0), 'e': (-CELL_SIZE*1,  0.00,  0.0), 'kp': 4, 'ex_kp': 4, 'traj': None, 'iter': 5}, \
+			3: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*3,  0.01+CELL_SIZE*1,  0.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': None}, \
+			4: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*3, -0.01-CELL_SIZE*1,  0.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': None}, \
+			5: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2,  CELL_SIZE*2,  90.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': None}, \
+			6: {'s': (0.0, 0.0, 0.0), 'e': (CELL_SIZE*2, 0.01-CELL_SIZE*2, -90.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': None}, \
+			7: {'s': (0.0, 0.0, 0.0), 'e': (0.00,  CELL_SIZE*4,  180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion, 'iter': 3 }, \
+			8: {'s': (0.0, 0.0, 0.0), 'e': (0.00, -CELL_SIZE*4, -180.0*math.pi/180.0), 'kp': 5, 'ex_kp': 5, 'traj': uturn_motion, 'iter': 3 }, \
+	}
+	'''
+	'''
 	# Jackal - Lab cell 0.4[m], , umax=0.5, delmax=45, w/ backwards, removed 2 steps forward
 	umax = 0.5
 	MotionPrimitives = { \
@@ -43,6 +73,7 @@ def CreateFunnels():
 			7: {'s': (0.0, 0.0, 0.0), 'e': (0.00,  CELL_SIZE*2,  180.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': uturn_motion, 'iter': 3 }, \
 			8: {'s': (0.0, 0.0, 0.0), 'e': (0.00, -CELL_SIZE*2, -180.0*math.pi/180.0), 'kp': 6, 'ex_kp': 6, 'traj': uturn_motion, 'iter': 3 }, \
 	}
+	'''
 	'''
 	# Jackal - Lab cell 0.4[m], , umax=0.5, delmax=45, w/ backwards, removed 2 steps forward
 	umax = 0.5
