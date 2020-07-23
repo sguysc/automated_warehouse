@@ -151,57 +151,67 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 	#merged_obs_list.extend(wks_obs)
 	
 	total_count = 0
-	G = nx.DiGraph(name='ConnectivityGraph')
-	for orient in range(4): #corresponds to (E, N, W, S)
-		print('Computing transition map for orientation (%d/4):' %(orient+1))
-		with tqdm(total=nX*nY) as pbar:
-			# rotate the motion primitives according to initial position
-			rotmat = GetRotmat(orient)
-			#import pdb; pdb.set_trace()
-			for i, x in enumerate(X):
-				for j, y in enumerate(Y):
-					for key, mp in MotionPrimitives.items():
-						#import pdb; pdb.set_trace()
-						connect2  = np.array([[ mp['e'][0]-mp['s'][0] ], \
-											  [ mp['e'][1]-mp['s'][1] ]])
-						# rotate to global coordinate system
-						connect2  = rotmat.dot( connect2 ) 
-						toLoc     = np.array([[x], [y]]) + connect2
+	map_label_2_pose = {}
+	with open(glob_p.MAP_KIND + '.label2pose', 'wb') as dbfile:
+		G = nx.DiGraph(name='ConnectivityGraph')
+		for orient in range(4): #corresponds to (E, N, W, S)
+			print('Computing transition map for orientation (%d/4):' %(orient+1))
+			with tqdm(total=nX*nY) as pbar:
+				# rotate the motion primitives according to initial position
+				rotmat = GetRotmat(orient)
+				#import pdb; pdb.set_trace()
+				for i, x in enumerate(X):
+					for j, y in enumerate(Y):
+						for key, mp in MotionPrimitives.items():
+							#import pdb; pdb.set_trace()
+							connect2  = np.array([[ mp['e'][0]-mp['s'][0] ], \
+												  [ mp['e'][1]-mp['s'][1] ]])
+							# rotate to global coordinate system
+							connect2  = rotmat.dot( connect2 ) 
+							toLoc     = np.array([[x], [y]]) + connect2
 
-						toRot     = (mp['e'][2]-mp['s'][2]) / (90.0*math.pi/180.0)
-						toRot     = (orient+toRot)%4
-						connect2  = connect2/cell
-						# detect backward motions to disable one ways to be ran backwards
-						mp_backward = (mp['e'][0]-mp['s'][0]) < 0.0
-						#if(x==3 and Y==13 and orient==3 and connect2[0][0]):
-						
-						# check if the funnel is not oriented with the one way direction
-						if(IsOneWayCompliant(x, y, orient, int(toRot), toLoc, one_ways, mp_backward)):
-							# check if funnel is in bounds and does not collide with any obstacle
-							if(IsPathFree(mp, merged_obs_list, rotmat, orient, x, y, toLoc[0], toLoc[1], \
-										  X[0], X[-1], Y[0], Y[-1], ax )):
-								# add some weighting based on the fact that you should prefer longer
-								# primitives (motion 0 will be better than 4 times motion 2) and
-								# turning around would be more expensive than going straight (motion 7-8 vs. motion 0).
-								# when constructing the library, the key is ranked with ascending difficulty
-								difficulty_factor = 1.0  + key/20.0 #just a factor
-								if(key>6):
-									difficulty_factor = difficulty_factor*5
+							toRot     = (mp['e'][2]-mp['s'][2]) / (90.0*math.pi/180.0)
+							toRot     = (orient+toRot)%4
+							connect2  = connect2/cell
+							connect2  = np.round(connect2) #sometimes there are numerical issues and it can cause
+															# to skip cells when doing int()
+							# detect backward motions (reverse and u-turns) to disable one ways to be ran backwards
 
-								#import pdb; pdb.set_trace()
-								# fully-reactive
-								#adjList = GenerateAdjacentCells(mp, rotmat, orient, i, j, i+int(connect2[0][0]), j+int(connect2[1][0]), W_xgrid, W_ygrid )
-									
-								G.add_edge( 'H' + str(int(orient)) + 'X' + str(i) + 'Y' + str(j), \
-											'H' + str(int(toRot)) + 'X' + str(i+int(connect2[0][0])) + \
-											'Y' + str(j+int(connect2[1][0])), \
-											weight=LA.norm(connect2)*difficulty_factor, motion=key, index=total_count) # fully-reactive adjList=adjList )
-								total_count += 1
-				pbar.update(nY)
-		plt.pause(0.05)
-		print(' ')
-	
-	#import pdb; pdb.set_trace()
+							mp_backward = (mp['e'][0]-mp['s'][0]) < 0.05
+							#if(x==3 and Y==13 and orient==3 and connect2[0][0]):
+							#if(-0.3>x>-1.0 and -1.5<y<1.7):
+							#	import pdb; pdb.set_trace()
+							#if(-0.5>x>-0.6 and -0.3>y>-0.4 and orient==1):
+							#	import pdb; pdb.set_trace()
+
+							# check if the funnel is not oriented with the one way direction
+							if(IsOneWayCompliant(x, y, orient, int(toRot), toLoc, one_ways, mp_backward)):
+								# check if funnel is in bounds and does not collide with any obstacle
+								if(IsPathFree(mp, merged_obs_list, rotmat, orient, x, y, toLoc[0], toLoc[1], \
+											  X[0], X[-1], Y[0], Y[-1], ax )):
+									# add some weighting based on the fact that you should prefer longer
+									# primitives (motion 0 will be better than 4 times motion 2) and
+									# turning around would be more expensive than going straight (motion 7-8 vs. motion 0).
+									# when constructing the library, the key is ranked with ascending difficulty
+									difficulty_factor = 1.0  + key/20.0 #just a factor
+									if(key>6):
+										difficulty_factor = difficulty_factor*5
+
+									#import pdb; pdb.set_trace()
+									# fully-reactive
+									#adjList = GenerateAdjacentCells(mp, rotmat, orient, i, j, i+int(connect2[0][0]), j+int(connect2[1][0]), W_xgrid, W_ygrid )
+									map_label_2_pose.update({'H' + str(int(orient)) + 'X' + str(i) + 'Y' + str(j): [x,y]})
+									G.add_edge( 'H' + str(int(orient)) + 'X' + str(i) + 'Y' + str(j), \
+												'H' + str(int(toRot)) + 'X' + str(i+int(connect2[0][0])) + \
+												'Y' + str(j+int(connect2[1][0])), \
+												weight=LA.norm(connect2)*difficulty_factor, motion=key, index=total_count) # fully-reactive adjList=adjList )
+									total_count += 1
+					pbar.update(nY)
+			plt.pause(0.05)
+			print(' ')
+
+		#import pdb; pdb.set_trace()
+		dill.dump(map_label_2_pose, dbfile)
 
 	print(nx.info(G))
 	# save time for next time
@@ -335,18 +345,49 @@ def IsOneWayCompliant(x, y, orient, toRot, toLoc, one_ways, mp_backward):
 	pnt = Point(x, y)
 	# check the end position. is it in the restricted zone
 	pnt2 = Point(toLoc[0][0], toLoc[1][0])
+	# maybe both start and end are out, but the middle is crossing a one-way
+	mid_pnt = Point((toLoc[0][0]+x)/2.0, (toLoc[1][0]+y)/2.0)
 	for key, regions in enumerate(one_ways):
 		for idx, region in enumerate(regions):
 			start_in = region.contains(pnt)
 			end_in = region.contains(pnt2)
+			mid_in = region.contains(mid_pnt)
 			if(start_in == True and end_in == True):
-				if(orient != key or toRot != key):
+				# only disallow mp that starts not in orientation and ends not in orientation
+				# otherwise, we either start good, end good or both which is compliant (to allow
+				# entering or leaving a oneway not only in the first line of it). also, disallow u-turn
+				if(orient != key and toRot != key):
 					return False
 				elif(orient == key and toRot == key and mp_backward):
 					#disable the backwards mps trying to cheat their way
 					return False
+				elif( mp_backward and ((orient == key) ^ (toRot == key))):
+					#or (orient != key and toRot == key and mp_backward)) ):
+					#if we're here, this means that one of the either is good but is facing backwards (==> u-turn)
+					return False
 			if(start_in == True and end_in == False):
-				if(orient != key):
+				if(np.abs(orient - key) == 2):
+					# if we're facing the opposite way - big no no
+					return False
+				# loop through the other regions, see if it ends up in another region
+				for key_end, regions_end in enumerate(one_ways):
+					for idx_end, region_end in enumerate(regions_end):
+						end_in = region_end.contains(pnt2)
+						#if(end_in and toRot != key_end):
+						#		return False
+						if(end_in and np.abs(toRot - key_end) == 2):
+							# ==2 means that the robot intends to go against direction (s=0,n=2), (e=1,w=3)
+							# any other case, allow it (like u-turn which goes well with traffic or a left turn
+							# that is perpendicular to traffic but you can comply from that point with traffic)
+							return False
+			if(start_in == False and end_in == True):
+				if(np.abs(toRot - key) == 2):
+					# if we're facing the opposite way - big no no
+					return False
+			if(start_in == False and end_in == False and mid_in == True):
+				if(np.abs(orient - key) == 2 and np.abs(toRot - key) == 2):
+					#we travelled in the wrong direction but the mp tried to bounce over the one-way.
+					#usually happens in the long forward mp
 					return False
 			#if(start_in == False and end_in == True):
 			#	if(toRot != key):

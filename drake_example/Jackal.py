@@ -84,7 +84,7 @@ class Jackal:
 		self.logger_state.addHandler(fileHandler_state)
 		# set header of telemetry file
 		self.logger.debug('t;frame;x;y;z;x_ref;y_ref;z_ref;delta_ref;u_ref;state;ellipse;control;action;delta;u;vx;vy;vz;wx;wy;wz;' \
-					'xr;yr;zr;delr;ur')
+					'xr;yr;zr;delr;ur;obs1x;obs1y;obs2x;obs2y')
 		
 		self.all_topics_loaded = False
 		self.Fs = 10 # main/control loop frequency
@@ -558,8 +558,11 @@ class Jackal:
 					# sensing might be different now because we might be far from first ellipse
 					self.funnel_sensors = self.SenseEnvironment() 				
 					# reset the position in slugs
-					self.curr_state, self.action = self.slugs.SetInitialPos(self.curr_state, self.funnel_sensors)
-					self.curr_ell = self.FindNextValidEllipse(self.action)
+					try:
+						self.curr_state, self.action = self.slugs.SetInitialPos(self.curr_state, self.funnel_sensors)
+						self.curr_ell = self.FindNextValidEllipse(self.action)
+					except:
+						import pdb; pdb.set_trace()
 					# extension to the telemetry file
 					#self.states_fid.write('%d;%s;%d\n' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
 					self.logger_state.debug('%d;%s;%d' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
