@@ -65,6 +65,8 @@ class Jackal:
 		aut_file=self.SYNTH_AUTOMATA_FILE
 		l2b_file=self.LABEL2BIT_FILE
 		
+		self.check_blocks_only_at_beginning = False
+		
 		# Create a custom logger
 		timenow     = localtime()
 		log_file    = strftime('telemetry_%Y_%m_%d_%H_%M_%S', timenow)
@@ -436,16 +438,17 @@ class Jackal:
 			Q      = msg.transform.rotation
 			angles = euler_from_quaternion([Q.x, Q.y, Q.z, Q.w])
 			#vicon has some slips, so reject the measurement if it wasn't good
-			if( np.abs(pose.x-self.others_pose[i][0])>0.5 or \
+			if(i == 'Helmet'):
+				if(pose.z < 1.0):
+					#and self.msg_num > 5):
+					reject_measurement = True
+			elif( np.abs(pose.x-self.others_pose[i][0])>0.5 or \
 			    np.abs(pose.y-self.others_pose[i][1])>0.5 ):
 				# do not ignore the first measurements, otherwise you have nothing
 				if(self.msg_num > 5):
 					reject_measurement = True
 				# only accept Helmet if z>1.0m (meaning: I wear it)
 				# GUY, maybe remove in the future
-			if(i == 'Helmet'):
-				if(pose.z < 1.0 and self.msg_num > 5):
-					reject_measurement = True
 			
 			#GUY: JUST TO DEBUG, REMOVE IT IMEDIATELY
 			#import pdb; pdb.set_trace()
@@ -483,7 +486,8 @@ class Jackal:
 				self.uinterp = self.u_ref
 
 			# populates the funnel restriction for the ego-robot
-			self.funnel_sensors = self.SenseEnvironment()
+			if(not self.check_blocks_only_at_beginning):
+				self.funnel_sensors = self.SenseEnvironment()
 			#import pdb; pdb.set_trace()
 			# re-synthesizing takes a while, so during this time, wait and do nothing
 			# GUY: in the future, perhaps check if the obstacle moved and keep the old
@@ -497,7 +501,7 @@ class Jackal:
 			# disabled, then quickly stop!!
 			if(self.slugs._Nsens > 0):
 				# this is basically the fully reactive, so 'F' is assumed otherwise
-				# Nsens would not be > 0 (unless it wasn't synthesized and called with wrong parameter)
+				# Nsens would not be > 0 (unless it wasn't synthesized correctly and called with wrong parameter)
 				if(self.funnel_sensors[self.action] == True):
 					print(self.colorize('RED', 'need to do emergency stop R%d (%s), state=%s(%d), mp=%d' %(self.idx, self.list_robots[self.idx], \
 												self.map_bit_2_label[self.curr_state], self.curr_state, self.action) ))
@@ -513,13 +517,13 @@ class Jackal:
 						# if we don't do this here, slugs might switch to the new cell and tell the robot to move backwards. once
 						# it's there, tell it to move forward and be stuck again.
 						#self.curr_state = self.GetClosestNode(self.pose)
-						print('in a stopped situation: R%d is now in %s (%d) mp=%d, checking sensors again ' %(\
+						print('in a stopped situation: R%d is now in %s (%d) mp=%d, re-synthesizing ... ' %(\
 							  self.idx, self.map_bit_2_label[self.curr_state], self.curr_state, self.action))
 						self.ReSynthesizeSpec()
 					else:
 						pass
 
-			# take action!
+			# take control action!
 			self.control(self.K, self.xinterp, self.uinterp, do_calc=self.do_calc)
 
 			# check if we're in the next ellipse on the same funnel
@@ -549,14 +553,14 @@ class Jackal:
 			# a different action to take
 			if(self.do_calc == False or self.action == self.STAY_IN_PLACE):
 				#just a way to reduce the frequency that we call setinitialpos from slugs interface
-				if((self.msg_num % self.MEAS_FS) <= 10):
+				if((self.msg_num % (self.MEAS_FS*2)) <= 10):
 					# change the funnel in slugs (setpos) to the actual location it is currently at
 					# to get a better chance to get a new route
 					self.curr_state = self.GetClosestNode(self.pose)
 					print('in a stopped situation: R%d is now in %s (%d), checking sensors again ' %(\
 						  self.idx, self.map_bit_2_label[self.curr_state], self.curr_state))
 					# sensing might be different now because we might be far from first ellipse
-					self.funnel_sensors = self.SenseEnvironment() 				
+					self.funnel_sensors = self.SenseEnvironment()
 					# reset the position in slugs
 					try:
 						self.curr_state, self.action = self.slugs.SetInitialPos(self.curr_state, self.funnel_sensors)
@@ -616,14 +620,15 @@ class Jackal:
 				if(self.goals[self.goal] == self.curr_state):
 					print(self.colorize('GREEN', 'Passed through a goal!'))
 					self.goal += 1
-					#reset counter
+					#reset counter if this is the last one
 					if( self.goal >= len(self.goals) ):
 						self.goal = 0
 
 				self.funnel_timer = self.msg_num
 				#rospy.loginfo
-				print('R%d reached funnel %d (%s) with action %d' \
-							  %(self.idx, self.next_state, self.map_bit_2_label[self.next_state], self.action))
+				print('R%d reached funnel %d (%s) from %d (%s) with action %d' \
+							  %(self.idx, self.next_state, self.map_bit_2_label[self.next_state], \
+								self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
 				#we've reached the beginning of a new funnel, so update the states
 				self.slugs.MoveNextStep()
 				self.curr_state = self.next_state

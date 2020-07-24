@@ -152,7 +152,7 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 	
 	total_count = 0
 	map_label_2_pose = {}
-	with open(glob_p.MAP_KIND + '.label2pose', 'wb') as dbfile:
+	with open(glob_p.MAP_KIND + '.label2pose', 'w') as dbfile:
 		G = nx.DiGraph(name='ConnectivityGraph')
 		for orient in range(4): #corresponds to (E, N, W, S)
 			print('Computing transition map for orientation (%d/4):' %(orient+1))
@@ -211,7 +211,8 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 			print(' ')
 
 		#import pdb; pdb.set_trace()
-		dill.dump(map_label_2_pose, dbfile)
+		#dill.dump(map_label_2_pose, dbfile)
+		json.dump(map_label_2_pose, dbfile)
 
 	print(nx.info(G))
 	# save time for next time
