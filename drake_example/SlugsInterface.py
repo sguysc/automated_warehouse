@@ -289,7 +289,7 @@ class SlugsInterface():
 			# do stuff to create the reversed binary string slugs expects
 			sensed_state = format(robot_sensed_state, '0%db' %(self._Nself) )
 			sensed_state = sensed_state[::-1]
-
+			#next_state   = sensed_state
 			# convert dict of restrictions into a string
 			sensed_inputs = ""
 			for prop in range(self._Nsens):
@@ -326,8 +326,8 @@ class SlugsInterface():
 			if('ERROR' in trans):
 				print('transition not followed, consider resetting with SetInitialPos')
 				return self.GetNumericState()
-			
-			self._trans_state = trans.partition(",")[0]
+			# we should be where we said we need to be
+			self._trans_state = trans.partition(",")[0]  #sensed_state
 			self._trans_state_n = [int(x) for x in list(self._trans_state)]
 				
 			if(trans.partition(",")[2]==0 and self._current_goal>0):

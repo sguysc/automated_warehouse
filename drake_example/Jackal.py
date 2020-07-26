@@ -244,8 +244,8 @@ class Jackal:
 				if( val['motion'] == self.action):
 					self.next_state = self.map_label_2_bit[key]
 					break
-		self.next_state, self.next_action = \
-			self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
+		#self.next_state, self.next_action = \
+		#	self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
 		#import pdb; pdb.set_trace()
 		if(self.list_robots == []):
 			print('R%d starts in region %s (%d)' %(self.idx, self.map_bit_2_label[self.curr_state],self.curr_state))
@@ -333,6 +333,7 @@ class Jackal:
 		self.timer = -1E6
 		self.funnel_timer = 0.0
 		self.disable_debug = True #False
+		self.in_debug = False
 		self.r = rospy.Rate(self.Fs)
 
 
@@ -473,7 +474,9 @@ class Jackal:
 			if(self.external_shutdown):
 				self.external_shutdown = False
 				break
-			
+			if(self.in_debug == True):
+				continue
+				
 			#import pdb; pdb.set_trace()
 			#if(self.msg_num > 120*1000):
 			#	import pdb; pdb.set_trace()
@@ -502,51 +505,54 @@ class Jackal:
 			if(self.slugs._Nsens > 0):
 				# this is basically the fully reactive, so 'F' is assumed otherwise
 				# Nsens would not be > 0 (unless it wasn't synthesized correctly and called with wrong parameter)
-				if(self.funnel_sensors[self.action] == True):
-					print(self.colorize('RED', 'need to do emergency stop R%d (%s), state=%s(%d), mp=%d' %(self.idx, self.list_robots[self.idx], \
-												self.map_bit_2_label[self.curr_state], self.curr_state, self.action) ))
-					self.do_calc = False
+				if(self.action != self.STAY_IN_PLACE):
+					if(self.funnel_sensors[self.action] == True):
+						print(self.colorize('RED', 'need to do emergency stop R%d (%s), state=%s(%d), mp=%d' %(self.idx, self.list_robots[self.idx], \
+													self.map_bit_2_label[self.curr_state], self.curr_state, self.action) ))
+						self.do_calc = False
 			else:
 				# in normal situation, we'd be here if we chose semi-reactive or graph based
-				if(self.funnel_sensors[self.action] == True):
-					print(self.colorize('RED', 'need to do emergency stop and re-synthesize'))
-					self.do_calc = False
-					if(self.reactive in ['S', 'G']):
-						#import pdb; pdb.set_trace()
-						# we need to re-synthesize a new solution because something that is non-compliant to the spec has happened.
-						# if we don't do this here, slugs might switch to the new cell and tell the robot to move backwards. once
-						# it's there, tell it to move forward and be stuck again.
-						#self.curr_state = self.GetClosestNode(self.pose)
-						print('in a stopped situation: R%d is now in %s (%d) mp=%d, re-synthesizing ... ' %(\
-							  self.idx, self.map_bit_2_label[self.curr_state], self.curr_state, self.action))
-						self.ReSynthesizeSpec()
-					else:
-						pass
+				if(self.action != self.STAY_IN_PLACE):
+					if(self.funnel_sensors[self.action] == True):
+						print(self.colorize('RED', 'need to do emergency stop and re-synthesize'))
+						self.do_calc = False
+						if(self.reactive in ['S', 'G']):
+							#import pdb; pdb.set_trace()
+							# we need to re-synthesize a new solution because something that is non-compliant to the spec has happened.
+							# if we don't do this here, slugs might switch to the new cell and tell the robot to move backwards. once
+							# it's there, tell it to move forward and be stuck again.
+							#self.curr_state = self.GetClosestNode(self.pose)
+							print('in a stopped situation: R%d is now in %s (%d) mp=%d, re-synthesizing ... ' %(\
+								  self.idx, self.map_bit_2_label[self.curr_state], self.curr_state, self.action))
+							self.ReSynthesizeSpec()
+						else:
+							pass
 
 			# take control action!
 			self.control(self.K, self.xinterp, self.uinterp, do_calc=self.do_calc)
 
 			# check if we're in the next ellipse on the same funnel
-			if(self.curr_ell < self.N_ellipse - 1):
-				# because sometimes we run too fast and we're going through the ellipses in a flash
-				# this goes from the end of the funnel, backwards, to see the furthest away ellipse
-				# that it is in
-				next_ell = self.N_ellipse - 1
-				while( next_ell > self.curr_ell ):
-					if(self.CheckEllipseCompletion(self.map_bit_2_label[self.curr_state], \
-												   self.action, next_ell) == True):
-						self.K     = self.mps[self.action]['K'][next_ell]
-						self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][next_ell], \
-													self.map_bit_2_label[self.curr_state])
-						self.u_ref = self.mps[self.action]['unom'][next_ell]
-						# this doesn't change when we go through another ellipse
-						#self.x_ref_hires = self.mps[ self.actions[self.curr_state] ]['xtraj']
-						#self.u_ref_hires = self.mps[ self.actions[self.curr_state] ]['utraj']
-						self.curr_ell = next_ell
-						#self.do_calc = True
-						#self.timer = self.msg_num
-						break;
-					next_ell -= 1
+			if(self.action != self.STAY_IN_PLACE):
+				if(self.curr_ell < self.N_ellipse - 1):
+					# because sometimes we run too fast and we're going through the ellipses in a flash
+					# this goes from the end of the funnel, backwards, to see the furthest away ellipse
+					# that it is in
+					next_ell = self.N_ellipse - 1
+					while( next_ell > self.curr_ell ):
+						if(self.CheckEllipseCompletion(self.map_bit_2_label[self.curr_state], \
+													   self.action, next_ell) == True):
+							self.K     = self.mps[self.action]['K'][next_ell]
+							self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][next_ell], \
+														self.map_bit_2_label[self.curr_state])
+							self.u_ref = self.mps[self.action]['unom'][next_ell]
+							# this doesn't change when we go through another ellipse
+							#self.x_ref_hires = self.mps[ self.actions[self.curr_state] ]['xtraj']
+							#self.u_ref_hires = self.mps[ self.actions[self.curr_state] ]['utraj']
+							self.curr_ell = next_ell
+							#self.do_calc = True
+							#self.timer = self.msg_num
+							break;
+						next_ell -= 1
 
 			# check if we're in the next funnel (and overflow when in the final one) and if next action
 			# is self.STAY_IN_PLACE, keep polling until it's unstuck. if we stopped in the middle, check until you have
@@ -554,6 +560,7 @@ class Jackal:
 			if(self.do_calc == False or self.action == self.STAY_IN_PLACE):
 				#just a way to reduce the frequency that we call setinitialpos from slugs interface
 				if((self.msg_num % (self.MEAS_FS*2)) <= 10):
+					#import pdb; pdb.set_trace()
 					# change the funnel in slugs (setpos) to the actual location it is currently at
 					# to get a better chance to get a new route
 					self.curr_state = self.GetClosestNode(self.pose)
@@ -563,59 +570,67 @@ class Jackal:
 					self.funnel_sensors = self.SenseEnvironment()
 					# reset the position in slugs
 					try:
+						# this is "breaking" the specification in case where it is fully reactive and sensor is polling more
+						# than just in the first ellipse
 						self.curr_state, self.action = self.slugs.SetInitialPos(self.curr_state, self.funnel_sensors)
-						self.curr_ell = self.FindNextValidEllipse(self.action)
+						if(self.action != self.STAY_IN_PLACE):
+							self.curr_ell = self.FindNextValidEllipse(self.action)
+							# extension to the telemetry file
+							#self.states_fid.write('%d;%s;%d\n' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
+							self.logger_state.debug('%d;%s;%d' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
+							# get how many points are in this new motion primitive
+							self.N_ellipse = len(self.mps[ self.action]['V'])
+							# update all the new motion parameters
+							self.K     = self.mps[self.action]['K'][self.curr_ell]
+							self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][self.curr_ell], \
+														self.map_bit_2_label[self.curr_state])
+							self.u_ref = self.mps[self.action]['unom'][self.curr_ell]
+							self.x_ref_hires = self.mps[ self.action]['xtraj']
+							self.u_ref_hires = self.mps[ self.action]['utraj']
+							self.timer = self.msg_num
+							# now, get the new next state
+							for key, val in self.G[self.map_bit_2_label[self.curr_state]].items():
+								if( val['motion'] == self.action):
+									self.next_state = self.map_label_2_bit[key]
+									break
+							# sensing what happens in the future funnel
+							#next_funnel_sensors = self.SenseEnvironment(funnel=self.map_bit_2_label[self.next_state]) 
+							#self.next_state, self.next_action = \
+							#		self.slugs.FindNextStep(self.next_state, next_funnel_sensors)
+							self.do_calc = True
+							print(self.colorize('GREEN', 'R%d is re-routing with action=%d ...' %(self.idx, self.action)) )
+							#if(self.next_action==self.STAY_IN_PLACE):
+							# we're stuck for now, check again later
+							#	print(self.colorize('YELLOW', 'oh no, R%d got \'stay in place\' for next action (%d)' %\
+							#						(self.idx, self.STAY_IN_PLACE)))
+						else:
+							# it's still in do not calculate new controls
+							print(self.colorize('RED', 'R%d is still getting stay in place action ...' %self.idx) )
+							self.do_calc = False
 					except:
 						import pdb; pdb.set_trace()
-					# extension to the telemetry file
-					#self.states_fid.write('%d;%s;%d\n' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
-					self.logger_state.debug('%d;%s;%d' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
-					# get how many points are in this new motion primitive
-					self.N_ellipse = len(self.mps[ self.action]['V'])
-					# update all the new motion parameters
-					self.K     = self.mps[self.action]['K'][self.curr_ell]
-					self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][self.curr_ell], \
-												self.map_bit_2_label[self.curr_state])
-					self.u_ref = self.mps[self.action]['unom'][self.curr_ell]
-					self.x_ref_hires = self.mps[ self.action]['xtraj']
-					self.u_ref_hires = self.mps[ self.action]['utraj']
-					self.timer = self.msg_num
-					if(self.action != self.STAY_IN_PLACE):
-						# now, get the new next state
-						for key, val in self.G[self.map_bit_2_label[self.curr_state]].items():
-							if( val['motion'] == self.action):
-								self.next_state = self.map_label_2_bit[key]
-								break
-						# sensing what happens in the future funnel
-						next_funnel_sensors = self.SenseEnvironment(funnel=self.map_bit_2_label[self.next_state]) 
-						self.next_state, self.next_action = \
-								self.slugs.FindNextStep(self.next_state, next_funnel_sensors)
-						self.do_calc = True
-						print(self.colorize('GREEN', 'R%d is re-routing with action=%d ...' %(self.idx, self.action)) )
-						if(self.next_action==self.STAY_IN_PLACE):
-						# we're stuck for now, check again later
-							print(self.colorize('YELLOW', 'oh no, R%d got \'stay in place\' for next action (%d)' %\
-												(self.idx, self.STAY_IN_PLACE)))
-					else:
-						# it's still in do not calculate new controls
-						print(self.colorize('RED', 'R%d is still getting stay in place action ...' %self.idx) )
-							
-			elif(self.next_action == self.STAY_IN_PLACE):
-				if(self.msg_num - self.timer > 1*self.MEAS_FS):
-					# if we still don't have any progress after 10*1/100 seconds (msg_num is in gazebo's framerate), then try resetting with 
-					# action=self.STAY_IN_PLACE. this will force a search for a new route right now
-					self.do_calc = False #self.action = self.STAY_IN_PLACE
-				else:
-					# sensing what happens in the future funnel (as if robot is now there)
-					next_funnel_sensors = self.SenseEnvironment(funnel=self.map_bit_2_label[self.next_state]) 
-					self.next_state, self.next_action = \
-						self.slugs.FindNextStep(self.next_state, next_funnel_sensors)
-					if(self.next_action != self.STAY_IN_PLACE):
-						self.do_calc = True
-						print(self.colorize('GREEN', 'R%d got a good (next) action now ...' %self.idx))
-					else:
-						print(self.colorize('YELLOW', 'R%d is still getting stay in place (but we\'re not there yet) ...' %self.idx) )
-			elif (self.CheckInNextFunnel(self.map_bit_2_label[self.next_state], self.next_action) == True):
+			#elif(self.next_action == self.STAY_IN_PLACE):
+			#	if(self.msg_num - self.timer > 1*self.MEAS_FS):
+			#		# if we still don't have any progress after 10*1/100 seconds (msg_num is in gazebo's framerate), then try resetting with 
+			#		# action=self.STAY_IN_PLACE. this will force a search for a new route right now
+			#		self.do_calc = False #self.action = self.STAY_IN_PLACE
+			#	else:
+			#		# sensing what happens in the future funnel (as if robot is now there)
+			#		next_funnel_sensors = self.SenseEnvironment(funnel=self.map_bit_2_label[self.next_state]) 
+			#		self.next_state, self.next_action = \
+			#			self.slugs.FindNextStep(self.next_state, next_funnel_sensors)
+			#		if(self.next_action != self.STAY_IN_PLACE):
+			#			self.do_calc = True
+			#			print(self.colorize('GREEN', 'R%d got a good (next) action now ...' %self.idx))
+			#		else:
+			#			print(self.colorize('YELLOW', 'R%d is still getting stay in place (but we\'re not there yet) ...' %self.idx) )
+			
+			#elif (self.CheckInNextFunnel(self.map_bit_2_label[self.next_state], self.next_action) == True):
+			# theoretically, it should've been the next_action so that we choose the right mp, but it doesn't really matter
+			# since all the first ellipses of all the mps are basically similar and surround the cell
+			elif (self.CheckInNextFunnel(self.map_bit_2_label[self.next_state], 0) == True):
+				#self.in_debug = True
+				#import pdb; pdb.set_trace()
 				#advance the next goal
 				if(self.goals[self.goal] == self.curr_state):
 					print(self.colorize('GREEN', 'Passed through a goal!'))
@@ -629,52 +644,62 @@ class Jackal:
 				print('R%d reached funnel %d (%s) from %d (%s) with action %d' \
 							  %(self.idx, self.next_state, self.map_bit_2_label[self.next_state], \
 								self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
+				self.curr_state = self.next_state
+				# check the sensors at our new location
+				next_funnel_sensors = self.SenseEnvironment(funnel=self.map_bit_2_label[self.curr_state]) 
+				# ask slugs to give us a new policy
+				self.next_state, self.action = \
+					self.slugs.FindNextStep(self.curr_state, next_funnel_sensors)
 				#we've reached the beginning of a new funnel, so update the states
 				self.slugs.MoveNextStep()
-				self.curr_state = self.next_state
-				# sometimes the first ellipse has zero speed and it causes trouble. skip ellipses ahead
-				# it's fine because if it doesn't have controls, then it is also at the same place as first ellipse.
-				# this is usually only one ellipse. Maybe should take care of it when creating the funnels or
-				self.curr_ell = self.FindNextValidEllipse(self.next_action)
-				self.action = self.next_action
-				if(self.action == self.STAY_IN_PLACE):
-					self.do_calc = False # now, stop in place
+				
 				# extension to the telemetry file
 				self.logger_state.debug('%d;%s;%d' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
-				# get how many points are in this new motion primitive
-				self.N_ellipse = len(self.mps[ self.action]['V'])
-				# update all the new motion parameters
-				self.K     = self.mps[self.action]['K'][self.curr_ell]
-				self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][self.curr_ell], \
-											self.map_bit_2_label[self.curr_state])
-				self.u_ref = self.mps[self.action]['unom'][self.curr_ell]
-				self.x_ref_hires = self.mps[ self.action]['xtraj']
-				self.u_ref_hires = self.mps[ self.action]['utraj']
-				self.timer = self.msg_num
-				# now, get the new next state
-				for key, val in self.G[self.map_bit_2_label[self.curr_state]].items():
-					if( val['motion'] == self.action):
-						self.next_state = self.map_label_2_bit[key]
-						break
+
+				if(self.action == self.STAY_IN_PLACE):
+					self.do_calc = False # now, stop in place
+					print(self.colorize('RED', 'R%d got stay in place action ...' %self.idx) )
+				else:
+					# sometimes the first ellipse has zero speed and it causes trouble. skip ellipses ahead
+					# it's fine because if it doesn't have controls, then it is also at the same place as first ellipse.
+					# this is usually only one ellipse. Maybe should take care of it when creating the funnels or
+					self.curr_ell = self.FindNextValidEllipse(self.action)
+					
+					# get how many points are in this new motion primitive
+					self.N_ellipse = len(self.mps[ self.action]['V'])
+					# update all the new motion parameters
+					self.K     = self.mps[self.action]['K'][self.curr_ell]
+					self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][self.curr_ell], \
+												self.map_bit_2_label[self.curr_state])
+					self.u_ref = self.mps[self.action]['unom'][self.curr_ell]
+					self.x_ref_hires = self.mps[ self.action]['xtraj']
+					self.u_ref_hires = self.mps[ self.action]['utraj']
+					self.timer = self.msg_num
+					# now, get the new next state
+					for key, val in self.G[self.map_bit_2_label[self.curr_state]].items():
+						if( val['motion'] == self.action):
+							self.next_state = self.map_label_2_bit[key]
+							break
 				# sensing what happens in the future funnel
-				next_funnel_sensors = self.SenseEnvironment(funnel=self.map_bit_2_label[self.next_state]) 
-				self.next_state, self.next_action = \
-					self.slugs.FindNextStep(self.next_state, next_funnel_sensors)
-				if(self.next_action==self.STAY_IN_PLACE):
-					# we're stuck for now, check again later
-					#import pdb; pdb.set_trace()
-					#self.do_calc = False
-					print(self.colorize('YELLOW', 'oh no, R%d got \'stay in place\' for next action (%d)' %\
-										(self.idx,self.STAY_IN_PLACE)) )
+				#next_funnel_sensors = self.SenseEnvironment(funnel=self.map_bit_2_label[self.next_state]) 
+				#self.next_state, self.next_action = \
+				#	self.slugs.FindNextStep(self.next_state, next_funnel_sensors)
+				#if(self.next_action==self.STAY_IN_PLACE):
+				#	# we're stuck for now, check again later
+				#	#import pdb; pdb.set_trace()
+				#	#self.do_calc = False
+				#	print(self.colorize('YELLOW', 'oh no, R%d got \'stay in place\' for next action (%d)' %\
+				#						(self.idx,self.STAY_IN_PLACE)) )
+				#self.in_debug = False
 
 			# GUY TODO, remove when done with debugging
-			if((self.msg_num - self.funnel_timer > 15*self.MEAS_FS) and (self.disable_debug == False)):
+			if((self.msg_num - self.funnel_timer > 15*self.MEAS_FS) and (not self.disable_debug)):
 				print(self.map_bit_2_label[self.next_state])
-				print(self.next_action)
+				#print(self.next_action)
 				print(self.pose)
-				find_non_zero = self.FindNextValidEllipse(self.next_action)
+				find_non_zero = self.FindNextValidEllipse(0)
 				S, ellipse_pose = self.GetCoordAndEllipseFromLabel(self.map_bit_2_label[self.next_state], \
-																   self.next_action, find_non_zero)
+																   0, find_non_zero)
 				print( self.InEllipse(S, ellipse_pose, pose=self.pose) )
 				import pdb; pdb.set_trace() 
 			
@@ -936,8 +961,8 @@ class Jackal:
 					if( val['motion'] == self.action):
 						self.next_state = self.map_label_2_bit[key]
 						break
-			self.next_state, self.next_action = \
-				self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
+			#self.next_state, self.action = \
+			#	self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
 			print('R%d starts in region %s (%d)' %(self.idx, self.map_bit_2_label[self.curr_state],self.curr_state))
 			self.N_ellipse = len(self.mps[self.action]['V'])
 			self.curr_ell  = self.FindNextValidEllipse(self.action)

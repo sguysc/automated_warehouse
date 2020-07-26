@@ -17,4 +17,4 @@
 #fi
 
 #./Jackal.py --i $1 --n 2 --robots jackal1,jackal3 #--obs Helmet
-./Jackal.py --i $1 --n 2 --robots jackal1,jackal3 --obs Helmet
+./Jackal.py --i $1 --n 2 --robots jackal1,jackal3 #--obs Helmet
