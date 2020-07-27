@@ -41,19 +41,30 @@ class SlugsInterface():
 			stderr, stdout = "",""
 
 			# wait till we find out if the file is realizeable or not
-			while True: 
+			stdout += self.slugsProcess.stdout.readline().strip() # only: oneStepRecovery:0
+			#ii=1
+			while not stderr.endswith("Execution\n"): 
+				# option a:
 				# retrieve outputs
-				stdout += self.slugsProcess.stdout.readline().strip()
 				stderr += self.slugsProcess.stderr.readline().strip()
 				# exit if synthesis is done and ready for execution
 				if "error" in stderr.lower():
 					self.realizeable = False
 					break
-				elif "unrealizable" in stderr:
+				elif ("unrealizable" in stderr) and ("oneStepRecovery" in stdout):
 					self.realizeable = False
 					break
-				elif "oneStepRecovery" in stdout:
+				elif ("realizable" in stderr) and ("oneStepRecovery" in stdout):
 					break
+				#print('ii=%d' %(ii))
+				#ii += 1
+			'''
+				# option b:
+				stderr += self.slugsProcess.stderr.readline().strip()
+			if( ("error" in stderr.lower() or "realizable" in stderr) and ("oneStepRecovery" in stdout)):
+				self.realizeable = False
+			'''
+			#import pdb; pdb.set_trace()
 			if(self.realizeable):		
 				print('ready to rock & roll!')
 				self.enabled = True

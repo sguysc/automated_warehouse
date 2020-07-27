@@ -918,7 +918,10 @@ def UpdateRestrictionSlugsInputFile(initial_pose, blocked_funnels, goals, robot_
 
 # generates the specification file for slugs (decentralized) 
 def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, filename='map_funnel', \
-						 ext_xgrid=[None], ext_ygrid=[None], ext_pix2m=None, ext_ic=None, map_label_2_bit={}):
+						 ext_xgrid=[None], ext_ygrid=[None], ext_pix2m=None, ext_ic=None, map_label_2_bit={}, \
+						 pre_blocked_funnels=[]):
+	total_actions    = len(MP) 
+	
 	if(None in ext_xgrid):
 		global W_xgrid
 	else:
@@ -931,7 +934,17 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 		global pix2m
 	else:
 		pix2m = ext_pix2m
-		
+	
+	blocked_funnels = []
+	if(len(pre_blocked_funnels) > 0):
+		for i, blocked in pre_blocked_funnels.items():
+			if(blocked):
+				# create an array of blocked mp's
+				blocked_funnels.append(i)
+	else:
+		# if nothing blocked, just say that we won't start with a stay in place
+		blocked_funnels.append(total_actions)
+	
 	tic = timer()
 	
 	Nnodes = nx.number_of_nodes(G)
@@ -989,6 +1002,9 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 		node_count = len(map_label_2_bit)
 		ext_map_l2b = True
 		
+	# the reverse dictionary is useful
+	map_bit_2_label = dict((v, k) for k, v in map_label_2_bit.items())
+	
 	full_file = ''
 
 	#import pdb; pdb.set_trace()
@@ -1019,9 +1035,8 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 			f.write('[INPUT]\n') 
 			#import pdb; pdb.set_trace()
 			other_robots = np.setdiff1d(robot_vec, np.array([self_r]) )
-			total_actions    = len(MP) 
 			
-			f.write('R:0...%d\n' %( node_count ) ) # existence of self robot in funnel/region
+			f.write('R:0...%d\n' %( node_count-1 ) ) # existence of self robot in funnel/region
 			#for r in other_robots:
 			if(len(other_robots)>0):
 				for act in range(total_actions):
@@ -1044,7 +1059,11 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 			f.write('\n')
 
 			f.write('[SYS_INIT]\n') 
-			f.write('!(mp=%d)\n' %( total_actions ))
+			for b_funnel in blocked_funnels:
+				# for the semi-reactive case, it prevents taking the same action as the action that
+				# stopped the execution in the first place
+				f.write('!(mp=%d)\n' %( b_funnel ))
+				
 			f.write('\n')
 
 			f.write('[ENV_TRANS]\n')
@@ -1054,7 +1073,10 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 			list_of_liveness_assmp = []
 			dict_connections = {}
 			# first, add all theoretically available motions to the environment transitions
-			for parent in G:
+			#for parent in G:
+			# switched to this notation so it will be consistent between re-synthesis procedure to debug easily
+			for node_index in range(node_count):
+				parent = map_bit_2_label[node_index]
 				# add functionality to stay in place (added first with the hope of choosing this rather than some
 				# other mp which leads to nowhere when in conflict with another robot
 				f.write('(R=%d & mp=%d)->(R\'=%d)\n' %(map_label_2_bit[parent], \

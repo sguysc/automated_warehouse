@@ -1,0 +1,2 @@
+t;frame;x;y;z;x_ref;y_ref;z_ref;delta_ref;u_ref;state;ellipse;control;action;delta;u;vx;vy;vz;wx;wy;wz;xr;yr;zr;delr;ur;obs1x;obs1y;obs2x;obs2y
+1595876725.461;1091;0.76;-1.84;177.31;0.95;-1.85;180.00;-0.00;0.50;462;0;1;0;-0.10;0.03;0.00;0.00;0.00;0.01;0.00;0.00;0.65;-1.85;180.00;-0.00;0.37;0.033;-100.00;-100.00;-0.52;-1.92

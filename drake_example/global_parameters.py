@@ -6,4 +6,4 @@ slugsLink = '/home/gs679/Tools/slugs/src/slugs'
 MAP_KIND = 'lab_case' 
 CELL_SIZE = 0.3 #0.4 #[m]
 UMAX = 0.5 # [m/s]
-REACTIVE = 'F'
+REACTIVE = 'S' #'F'

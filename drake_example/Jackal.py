@@ -188,8 +188,13 @@ class Jackal:
 		self.slugs = SlugsInterface(aut_file + ('_r%d' %self.idx), simulate=False, slugsLink = self.SLUGS_DIR)
 		toc = timer()
 		if(not self.slugs.enabled):
-			print('Cannot create slugs interface.')
+			#print('Cannot create slugs interface.')
+			print(self.colorize('PINK','Could not run because specification is unrealizable. Fix it and come back one year!'))
+			self.realizable = False
 			return
+		else:
+			self.realizable = True
+			
 		print('Done loading slugs (%.2f[sec]).' %(toc-tic))
 		self.slugs.DiscoverInputs()
 		self.slugs.DiscoverOutputs()
@@ -248,9 +253,10 @@ class Jackal:
 		#	self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
 		#import pdb; pdb.set_trace()
 		if(self.list_robots == []):
-			print('R%d starts in region %s (%d)' %(self.idx, self.map_bit_2_label[self.curr_state],self.curr_state))
+			print('R%d starts in region %s (%d), mp=%d' %(self.idx, self.map_bit_2_label[self.curr_state],self.curr_state, self.action))
 		else:
-			print('R%d (%s) starts in region %s (%d)' %(self.idx, self.list_robots[self.idx], self.map_bit_2_label[self.curr_state],self.curr_state))
+			print('R%d (%s) starts in region %s (%d), mp=%d' %(self.idx, self.list_robots[self.idx], \
+										self.map_bit_2_label[self.curr_state],self.curr_state, self.action))
 
 		#self.N_state  = len(self.states)
 		self.N_ellipse = len(self.mps[self.action]['V'])
@@ -440,7 +446,7 @@ class Jackal:
 			angles = euler_from_quaternion([Q.x, Q.y, Q.z, Q.w])
 			#vicon has some slips, so reject the measurement if it wasn't good
 			if(i == 'Helmet'):
-				if(pose.z < 1.0):
+				if(pose.z < 0.0):
 					#and self.msg_num > 5):
 					reject_measurement = True
 			elif( np.abs(pose.x-self.others_pose[i][0])>0.5 or \
@@ -524,7 +530,9 @@ class Jackal:
 							#self.curr_state = self.GetClosestNode(self.pose)
 							print('in a stopped situation: R%d is now in %s (%d) mp=%d, re-synthesizing ... ' %(\
 								  self.idx, self.map_bit_2_label[self.curr_state], self.curr_state, self.action))
-							self.ReSynthesizeSpec()
+							if(not self.ReSynthesizeSpec()):
+								print('could not re-synthesize because spec. is unrealizable')
+								self.external_shutdown = True
 						else:
 							pass
 
@@ -761,7 +769,8 @@ class Jackal:
 							self.blocking_obs[mp_i] = adv_pose
 							if(self.action == mp_i):
 								# do less printing on screen
-								print('Robot #%d caused funnel %d to be blocked (ellipse %d)' %(r, mp_i, S_i))
+								print('Robot #%d caused funnel %d (ellipse %d) to be blocked (R=%d, curr_ellipse=%d)' \
+									  %(r, mp_i, S_i, self.curr_state, self.curr_ell))
 							#import pdb; pdb.set_trace()
 							break
 					#means something already occupied it so no need to check other things as well
@@ -779,7 +788,8 @@ class Jackal:
 							self.blocking_obs[mp_i] = adv_pose
 							if(self.action == mp_i):
 								# do less printing on screen, only if it is blocking us
-								print('%s caused funnel %d to be blocked (ellipse %d, R=%d)' %(obs, mp_i, S_i, self.curr_state))
+								print('%s caused funnel %d (ellipse %d) to be blocked (R=%d, curr_ellipse=%d)' \
+									  %(obs, mp_i, S_i, self.curr_state, self.curr_ell))
 							#import pdb; pdb.set_trace()
 							break
 					#means something already occupied it so no need to check other things as well
@@ -895,8 +905,9 @@ class Jackal:
 			'''
 			# option c: (good, but is it best i can do?) create the structuredslugs again with a do not enter zone
 			# about the new obstacle
-			
-			current_pose = self.GetClosestNode(self.pose)
+			#import pdb; pdb.set_trace()
+			current_pose = self.GetClosestNode(self.pose) # the robot might have moved a bit
+			#current_pose = self.curr_state # so it will match with the mp's to restrict
 			goals = []
 			nxt_goal = self.goal - 1 #it's because the slugsin file already shifts one by itself
 			prv_goal = self.goal
@@ -915,10 +926,11 @@ class Jackal:
 					obstacle_region = self.GetClosestNode(obs_pose)
 					# only deal with a new obstacle, don't count same obstacle twice even if it affected two motion primitives
 					if(obstacle_region not in unique_regions):
-						print('robot in R=%d, obstacle in R=%d: (%.2f,%.2f,%.2f)' % \
-							  (current_pose, obstacle_region,obs_pose[0],obs_pose[1],obs_pose[2]))
+						print('robot in %s (R=%d), obstacle in R=%d: (%.2f,%.2f,%.2f)' % \
+							  (self.map_bit_2_label[current_pose], current_pose, obstacle_region, \
+							   obs_pose[0],obs_pose[1],obs_pose[2]))
 						unique_regions.append(obstacle_region)
-						# add the no enter zone, bloat by FL_L
+						# add a no enter zone, bloat by FL_L
 						no_enter.append(box(obs_pose[0]-FL_L, obs_pose[1]-FL_L, obs_pose[0]+FL_L, obs_pose[1]+FL_L))
 						
 			#import pdb; pdb.set_trace()
@@ -926,27 +938,35 @@ class Jackal:
 			copyfile(self.MAP + '_r' + str(self.idx) + '.structuredslugs', \
 					 self.MAP + '_r' + str(self.idx) + '_' + str(self.resynth_cnt) + '.structuredslugs')
 			self.resynth_cnt += 1
+			# send the new restrictions for the specification
+			funnel_sensors = self.SenseEnvironment(funnel=self.map_bit_2_label[current_pose])
 			
+			self.slugs.Shutdown()
+			#import pdb; pdb.set_trace()
 			CreateSlugsInputFile(self.G, [goals], self.mps, no_enter, self.total_robots, \
 						robot_idx=self.idx, filename=self.MAP, ext_xgrid=self.W_xgrid, ext_ygrid=self.W_ygrid, \
-						ext_pix2m=1.0, ext_ic=current_pose, map_label_2_bit=self.map_label_2_bit) 
-			#import pdb; pdb.set_trace()
-			self.slugs.Shutdown()
+						ext_pix2m=1.0, ext_ic=current_pose, map_label_2_bit=self.map_label_2_bit, \
+						pre_blocked_funnels=funnel_sensors) 
+			
+			
 			# here we have a new slugsin file, so re-load slugs
 			self.slugs = SlugsInterface(self.SYNTH_AUTOMATA_FILE + ('_r%d' %self.idx), simulate=False, slugsLink = self.SLUGS_DIR)
 			if(not self.slugs.enabled):
 				print('Cannot re-create slugs interface.')
 				self.InSynthesisProcedure = False
 				return False
-			
+			#import pdb; pdb.set_trace()
 			print('Successfully re-loaded slugs.')
 			self.slugs.DiscoverInputs()
 			self.slugs.DiscoverOutputs()
 			self.slugs.DiscoverGoals()
 			self.slugs.GetInitialPos()
+		
 			#import pdb; pdb.set_trace()
 			#reset all the variables concerning the new situation
 			self.curr_state, self.action = self.slugs.GetNumericState()
+			# reset the sensors
+			self.funnel_sensors = self.SenseEnvironment()
 			#self.goals = goals[:] # copy using slicing
 			self.goal = prv_goal
 			self.logger_state.debug('%d;%s;%d' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
@@ -963,7 +983,7 @@ class Jackal:
 						break
 			#self.next_state, self.action = \
 			#	self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
-			print('R%d starts in region %s (%d)' %(self.idx, self.map_bit_2_label[self.curr_state],self.curr_state))
+			print('R%d starts in region %s (%d) mp=%d' %(self.idx, self.map_bit_2_label[self.curr_state],self.curr_state,self.action))
 			self.N_ellipse = len(self.mps[self.action]['V'])
 			self.curr_ell  = self.FindNextValidEllipse(self.action)
 			self.K         = self.mps[self.action]['K'][self.curr_ell]
@@ -1278,8 +1298,11 @@ class Jackal:
 			return "\033[{0}m{1}\033[0m".format(colors[level], string)
 			
 	def Shutdown(self):
-		self.slugs.Shutdown() #hopefully destroy the memory taken by slugs
-		#self.states_fid.close()
+		try:
+			self.slugs.Shutdown() #hopefully destroy the memory taken by slugs
+			#self.states_fid.close()
+		except:
+			pass
 		print("Shutting down\n")
 
 if __name__ == '__main__':
@@ -1326,18 +1349,21 @@ if __name__ == '__main__':
 	rospy.init_node('run_jackal_%d' %args.i)#, log_level=rospy.DEBUG)
 	J = Jackal(args.i, args.n, list_obs=list_obs, list_robots=list_robots, first_goal_for_gazebo=pos0, reactive=glob_p.REACTIVE)
 
-	try:
-		#rospy.spin()
-		J.Run()
-	except KeyboardInterrupt:
-		pass
-	except rospy.ROSInterruptException:
-		pass
-	except:
-		print "Unexpected error:", sys.exc_info()[0]
-		raise
-	finally:
-		timenow     = localtime()
-		print('Ended program at ' + strftime('%H:%M:%S', timenow))
-		J.Shutdown() #hopefully destroy the memory taken by slugs
-	# END ALL
+	if(J.realizable):
+		try:
+			#rospy.spin()
+			J.Run()
+		except KeyboardInterrupt:
+			pass
+		except rospy.ROSInterruptException:
+			pass
+		except:
+			print "Unexpected error:", sys.exc_info()[0]
+			raise
+		finally:
+			timenow     = localtime()
+			print('Ended program at ' + strftime('%H:%M:%S', timenow))
+			J.Shutdown() #hopefully destroy the memory taken by slugs
+		# END ALL
+	else:
+		J.Shutdown()

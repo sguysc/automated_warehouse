@@ -16,5 +16,6 @@
 #	#./Jackal.py --i 1 --n 2 --robots jackal3,jackal2 --obs hat1_1
 #fi
 
-#./Jackal.py --i $1 --n 2 --robots jackal1,jackal3 #--obs Helmet
-./Jackal.py --i $1 --n 2 --robots jackal1,jackal3 #--obs Helmet
+./Jackal.py --i $1 --n 2 --robots jackal2,jackal3 --obs Helmet
+#./Jackal.py --i $1 --n 2 --robots jackal1,jackal3 | tee ../telemetry/r${1}.outfile  #--obs Helmet
+
