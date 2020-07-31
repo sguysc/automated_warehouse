@@ -117,6 +117,7 @@ class Jackal:
 		self.reactive = reactive # Full, Semi, Graph based
 		self.InSynthesisProcedure = False
 		self.resynth_cnt = 0
+		self.realizable_spec = True
 
 		# load the map properties
 		aut = open(map_file, 'r')
@@ -446,7 +447,7 @@ class Jackal:
 			angles = euler_from_quaternion([Q.x, Q.y, Q.z, Q.w])
 			#vicon has some slips, so reject the measurement if it wasn't good
 			if(i == 'Helmet'):
-				if(pose.z < 0.0):
+				if(pose.z < 1.0):
 					#and self.msg_num > 5):
 					reject_measurement = True
 			elif( np.abs(pose.x-self.others_pose[i][0])>0.5 or \
@@ -506,6 +507,13 @@ class Jackal:
 				#self.control(self.K, self.xinterp, self.uinterp, do_calc=False)
 				continue
 			
+			if(not self.realizable_spec):
+				print('trying to re-synthesize again, maybe the obstacle got out of the way')
+				self.realizable_spec = self.ReSynthesizeSpec()
+				if(not self.realizable_spec):
+					print('nope. could not re-synthesize because spec. is unrealizable')
+					continue
+
 			# if we currently run through an action that is supposed to be 
 			# disabled, then quickly stop!!
 			if(self.slugs._Nsens > 0):
@@ -530,9 +538,11 @@ class Jackal:
 							#self.curr_state = self.GetClosestNode(self.pose)
 							print('in a stopped situation: R%d is now in %s (%d) mp=%d, re-synthesizing ... ' %(\
 								  self.idx, self.map_bit_2_label[self.curr_state], self.curr_state, self.action))
-							if(not self.ReSynthesizeSpec()):
+							self.realizable_spec = self.ReSynthesizeSpec()
+							if(not self.realizable_spec):
 								print('could not re-synthesize because spec. is unrealizable')
-								self.external_shutdown = True
+								continue
+								#self.external_shutdown = True
 						else:
 							pass
 
@@ -617,6 +627,8 @@ class Jackal:
 							self.do_calc = False
 					except:
 						import pdb; pdb.set_trace()
+						self.curr_state, self.action = self.slugs.SetInitialPos(self.curr_state, self.funnel_sensors)
+						
 			#elif(self.next_action == self.STAY_IN_PLACE):
 			#	if(self.msg_num - self.timer > 1*self.MEAS_FS):
 			#		# if we still don't have any progress after 10*1/100 seconds (msg_num is in gazebo's framerate), then try resetting with 
@@ -923,7 +935,12 @@ class Jackal:
 			unique_regions = []
 			for i, obs_pose in enumerate(self.blocking_obs):
 				if (obs_pose != []):
-					obstacle_region = self.GetClosestNode(obs_pose)
+					try:
+						#if an obstacle is not in the map (inside a static obstacle) then this would cause
+						# problems (because there is no cell there). so just ignore this for now.
+						obstacle_region = self.GetClosestNode(obs_pose)
+					except:
+						continue
 					# only deal with a new obstacle, don't count same obstacle twice even if it affected two motion primitives
 					if(obstacle_region not in unique_regions):
 						print('robot in %s (R=%d), obstacle in R=%d: (%.2f,%.2f,%.2f)' % \
@@ -981,17 +998,17 @@ class Jackal:
 					if( val['motion'] == self.action):
 						self.next_state = self.map_label_2_bit[key]
 						break
-			#self.next_state, self.action = \
-			#	self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
-			print('R%d starts in region %s (%d) mp=%d' %(self.idx, self.map_bit_2_label[self.curr_state],self.curr_state,self.action))
-			self.N_ellipse = len(self.mps[self.action]['V'])
-			self.curr_ell  = self.FindNextValidEllipse(self.action)
-			self.K         = self.mps[self.action]['K'][self.curr_ell]
-			self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][self.curr_ell], \
-											self.map_bit_2_label[self.curr_state])
-			self.x_ref_hires = self.mps[self.action]['xtraj']
-			self.u_ref = self.mps[self.action]['unom'][self.curr_ell]
-			self.u_ref_hires = self.mps[self.action]['utraj']
+				#self.next_state, self.action = \
+				#	self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
+				print('R%d starts in region %s (%d) mp=%d' %(self.idx, self.map_bit_2_label[self.curr_state],self.curr_state,self.action))
+				self.N_ellipse = len(self.mps[self.action]['V'])
+				self.curr_ell  = self.FindNextValidEllipse(self.action)
+				self.K         = self.mps[self.action]['K'][self.curr_ell]
+				self.x_ref, __ = self.ConvertRelPos2Global(self.mps[self.action]['xcenter'][self.curr_ell], \
+												self.map_bit_2_label[self.curr_state])
+				self.x_ref_hires = self.mps[self.action]['xtraj']
+				self.u_ref = self.mps[self.action]['unom'][self.curr_ell]
+				self.u_ref_hires = self.mps[self.action]['utraj']
 			#import pdb; pdb.set_trace()
 		elif(self.reactive == 'G'):
 			pass
