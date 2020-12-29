@@ -15,7 +15,8 @@ if ~isequal(file,0)
 else
     return
 end
-map_name = 'lab';
+map_name = 'ECE6950';
+%map_name = 'lab';
 %map_name = 'raymond';
 
 map_text = fileread([map_name '.map']);

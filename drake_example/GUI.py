@@ -832,10 +832,12 @@ class GUI:
 		else:
 			reactive_option = 'G'
 
+		map_file = self.filename.split('/')[-1]
+		map_file = map_file.split('.')[0]
 		rospy.init_node('run_jackal_%d' %robot_num)#, log_level=rospy.DEBUG)
 		self.RobotObjects.update({robot_num: mn.Jackal(robot_num, total_robots, list_obs, \
 													   first_goal_for_gazebo=robot_goals['goal1'], \
-													   reactive=reactive_option)})
+													   reactive=reactive_option, map_file=map_file)})
 
 		try:
 			#rospy.spin()

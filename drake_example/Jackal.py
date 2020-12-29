@@ -23,7 +23,7 @@ import global_parameters as glob_p
 #import GeometryFunctions as gf
 
 # lab or simulation
-SIMULATION = False
+SIMULATION = True
 
 # ROS stuff
 import rospy
@@ -42,11 +42,15 @@ from tf2_geometry_msgs import do_transform_vector3
 
 # class to handle a single robot comm.
 class Jackal:
-	def __init__(self, idx, total_robots, list_obs=[], list_robots=[], first_goal_for_gazebo=None, reactive='F'):
+	def __init__(self, idx, total_robots, list_obs=[], list_robots=[], first_goal_for_gazebo=None, reactive='F', map_file=None):
 		self.ROBOT_TYPE = 'JACKAL'  # original JACKAL run with 'roslaunch jackal_gazebo jackal_world.launch'
 		#self.ROBOT_TYPE = 'TURTLEBOT'
 		#self.MAP    = 'raymond'
-		self.MAP    = glob_p.MAP_KIND
+		if(map_file == None):
+			self.MAP    = glob_p.MAP_KIND
+		else:
+			self.MAP    = map_file
+
 		self.umax   = glob_p.UMAX #0.3 #1.0  # jackal m/sec     5.0
 		self.delmax = 45.0*np.pi/180.0  # jackal rad   30.0 80
 		self.MEAS_FS = 100 #100 for gazebo, not sure about vicon/optitrack
@@ -71,6 +75,7 @@ class Jackal:
 		timenow     = localtime()
 		log_file    = strftime('telemetry_%Y_%m_%d_%H_%M_%S', timenow)
 		print('Started program at ' + strftime('%H:%M:%S', timenow))
+		print('using map %s' %(self.MAP))
 		level          = logging.DEBUG
 		self.logger      = logging.getLogger(__name__ + str(idx))
 		self.logger_state= logging.getLogger(__name__ + '_state_' + str(idx))
@@ -521,7 +526,11 @@ class Jackal:
 				# Nsens would not be > 0 (unless it wasn't synthesized correctly and called with wrong parameter)
 				if(self.action != self.STAY_IN_PLACE):
 					if(self.funnel_sensors[self.action] == True):
-						print(self.colorize('RED', 'need to do emergency stop R%d (%s), state=%s(%d), mp=%d' %(self.idx, self.list_robots[self.idx], \
+						if(self.list_robots == []):
+							print(self.colorize('RED', 'need to do emergency stop R%d, state=%s(%d), mp=%d' %(self.idx, \
+													self.map_bit_2_label[self.curr_state], self.curr_state, self.action) ))
+						else:
+							print(self.colorize('RED', 'need to do emergency stop R%d (%s), state=%s(%d), mp=%d' %(self.idx, self.list_robots[self.idx], \
 													self.map_bit_2_label[self.curr_state], self.curr_state, self.action) ))
 						self.do_calc = False
 			else:
@@ -586,10 +595,13 @@ class Jackal:
 						  self.idx, self.map_bit_2_label[self.curr_state], self.curr_state))
 					# sensing might be different now because we might be far from first ellipse
 					self.funnel_sensors = self.SenseEnvironment()
+					print('Blocked actions in this pose:')
+					print( self.funnel_sensors)
 					# reset the position in slugs
 					try:
 						# this is "breaking" the specification in case where it is fully reactive and sensor is polling more
 						# than just in the first ellipse
+						#import pdb; pdb.set_trace()
 						self.curr_state, self.action = self.slugs.SetInitialPos(self.curr_state, self.funnel_sensors)
 						if(self.action != self.STAY_IN_PLACE):
 							self.curr_ell = self.FindNextValidEllipse(self.action)
@@ -758,7 +770,7 @@ class Jackal:
 				# go through ellipses in this motion primitive, starting from where we currently are
 				# because there's no need of stopping if it was in the past
 				for S_i in range(curr_ell, len(mp['V'])):
-					# GUY, TODO, i'm just ignoring the first ellipse so it won't fall if the is an obstacle behind the robot
+					# GUY, TODO, i'm just ignoring the first ellipse so it won't fall if the obstacle is behind the robot
 					# but this should be better handled
 					# get the ellipse coordinates and matrix in motion primitive's relative coordinates
 					S, ellipse_pose = self.GetCoordAndEllipseFromLabel(funnel, mp_i, S_i)
@@ -1338,6 +1350,8 @@ if __name__ == '__main__':
 					help='initial y position')
 	parser.add_argument('--teta0', type=str, default='',
 					help='initial z position')
+	parser.add_argument('--sim', type=int, default=0,
+					help='0 - for the lab, 1 - for Gazebo simulation')
 	args = parser.parse_args()
 	print('Controller for Jackal%d' %args.i)
 	if(args.obs == ''):
@@ -1358,7 +1372,9 @@ if __name__ == '__main__':
 		pos0 = [float(args.x0), float(args.y0), float(args.teta0)]
 
 	# connect to the relevant master (just because I couldn't make the slaves to connect and run :( )
-	if(list_robots == []):
+	if(args.sim == 1):
+		os.environ['ROS_MASTER_URI'] = 'http://localhost:11311/'
+	elif(list_robots == []):
 		os.environ['ROS_MASTER_URI'] = 'http://jackal%d:11311/'%args.i
 	else:
 		os.environ['ROS_MASTER_URI'] = 'http://%s:11311/'%(list_robots[args.i-1] )
