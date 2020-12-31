@@ -4,7 +4,8 @@ import numpy as np
 import json
 #import threading
 import multiprocessing
-import os, sys
+from multiprocessing import Manager
+import os, sys, dill
 from time import localtime, strftime
 import logging # can't handle the ros logging :(
 from functools import partial
@@ -115,6 +116,7 @@ class GUI:
 		self.file_loaded = False
 		self.has_fixed_step_changed = None
 		self.has_task_step_changed = None
+		self.need_to_perform_map_again = None
 		self.add_new_obs = False
 		self.add_new_nez = False
 		self.add_new_ow = False
@@ -122,6 +124,9 @@ class GUI:
 		self.coord1 = None
 		self.coord2 = None
 		self.RobotObjects = {}
+		self.NewIC = {k:None for k in range(20)} # whether to track the new ic in case it moved
+		self.manager = Manager()
+		self.pose_data = self.manager.dict({'jackal0': 0, 'jackal1': 0, 'jackal2': 0})
 
 		# the map canvas
 		self.canvas_height=600
@@ -254,6 +259,7 @@ class GUI:
 			pass
 		finally:
 			self.has_fixed_step_changed = True
+			self.need_to_perform_map_again = True
 		
 		return True
 	
@@ -397,6 +403,7 @@ class GUI:
 				self.main.title('Automated Warehouse in a Day - GUI (%s)' %self.filename.split('/')[-1])
 				self.has_fixed_step_changed = None
 				self.has_task_step_changed = None
+				self.need_to_perform_map_again = None
 				
 				self.LoadMap()
 				self.LoadTask()
@@ -406,8 +413,15 @@ class GUI:
 		
 				self.has_fixed_step_changed = False
 				self.has_task_step_changed = False
+				self.need_to_perform_map_again = False
 			
 				self.thread = {}
+				
+				map_name = self.filename.split('.')[0]
+				dbfile = open(map_name + '.label2bit', 'rb')
+				self.map_label_2_bit = dill.load(dbfile)
+				dbfile.close()
+
 
 	# save the new spec to file and reload
 	def SaveSpecification(self):
@@ -448,7 +462,6 @@ class GUI:
 			return
 		
 		robot_num = int(self.robot_num.get())
-		#import pdb; pdb.set_trace()
 		'''
 		try:
 			#does it exist yet?
@@ -459,8 +472,15 @@ class GUI:
 		try:
 			# or basically not run yet
 			if(self.thread[robot_num].is_alive()):
+				#pose = self.RobotObjects[robot_num].pose
+				#pose_label = self.RobotObjects[robot_num].GetClosestNode(pose)
+				pose = self.pose_data['jackal%d' %robot_num]
+				self.NewIC[robot_num] = pose
+				
 				print('stopping robot #%d ...' %(robot_num))
 				self.thread[robot_num].terminate()
+				
+				
 		except:
 			print('Robot%d does not seem to run' %robot_num)
 	
@@ -479,11 +499,23 @@ class GUI:
 		except:
 			pass
 		finally:
+			if(self.NewIC[robot_num] != None):
+				if tkMessageBox.askokcancel("Robot %d moved" %robot_num, \
+											"Do you want to re-synthesize to account for new robot\'s pose?"):
+					print('cool, re-synthesizing with new [ENV_INIT]...')
+					self.SynthesisProcedure(ext_ic=self.NewIC[robot_num])
+				else:
+					print('ok, make sure the robot is going to be in its required starting place, especially in the lab')
+					self.NewIC[robot_num] = None
+			
 			print('running robot #%d' %(robot_num))
 			#self.thread.update({robot_num: threading.Thread(target=run_main_program, \
 			#                   args=[robot_num, self.spec['active_robots'], 'Person']) })
+			# self.pose_data is an object that can transfer data between the child process to this GUI parent
 			self.thread.update({robot_num: multiprocessing.Process(target=self.run_main_program, \
-								args=(robot_num, self.spec, 'person_standing')) })
+								args=(self.pose_data, robot_num, self.spec, 'person_standing', self.NewIC[robot_num])) })
+			# get ready for the new execution
+			self.NewIC[robot_num] = None
 			'''
 			total_robots = self.spec['active_robots']
 			list_obs = 'person_standing'
@@ -691,14 +723,14 @@ class GUI:
 		self.pix2m  = np.max([self.W_Width/self.canvas_width, self.W_Height/self.canvas_height])*1.0
 		
 	# synthesis pipeline
-	def SynthesisProcedure(self):	
+	def SynthesisProcedure(self, ext_ic=None):
 		
 		self.synth_button.configure(text = 'please wait ...')
 		self.main.update()
 		
 		cell = CELL_SIZE
 		
-		if(self.has_fixed_step_changed == False):
+		if(self.need_to_perform_map_again == False):
 			force = False
 		else:
 			force = True
@@ -754,9 +786,12 @@ class GUI:
 				map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, goals, MP, no_enter, robots_num, filename=map_kind) #'map_funnel')
 			elif(reactive_option == 2):
 				map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, [goals[robot_num]], MP, no_enter, 1, \
-														  robot_idx=robot_num, filename=map_kind) 
+														  robot_idx=robot_num, filename=map_kind, ext_ic=ext_ic) 
 				#map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, goals, MP, no_enter, 1, \
 														  
+			# unless there will be a change again, if we synthesize a spec for robot 1, no need to do it
+			# again if user asks for robot 2
+			self.need_to_perform_map_again = False
 		else:
 			map_label_2_bit = wm.UpdateGoalsSlugsInputFile(goals, robot_num, filename=map_kind)
 			
@@ -774,6 +809,11 @@ class GUI:
 		else:
 			wm.CheckRealizeability(robots_num, filename=map_kind, robot_num=robot_num)
 		
+		map_name = self.filename.split('.')[0]
+		dbfile = open(map_name + '.label2bit', 'rb')
+		self.map_label_2_bit = dill.load(dbfile)
+		dbfile.close()
+
 		self.synth_button.configure(text = 'Synthesize')
 		self.main.update()
 		print('Done.')
@@ -812,7 +852,7 @@ class GUI:
 				canvas.create_line(-10, y, 10, y, fill="#000000")
 				canvas.create_text(30, y, text='%.2f'%(y*self.pix2m+self.workspace.bounds[0]))
 
-	def run_main_program(self, robot_num, spec, obstacles):
+	def run_main_program(self, pose_data, robot_num, spec, obstacles, ic_for_gazebo):
 		# option a
 		'''
 		os.system("./Jackal.py --i %d --n %d --obs %s" %(robot_num, total_robots, obstacles))
@@ -834,14 +874,22 @@ class GUI:
 
 		map_file = self.filename.split('/')[-1]
 		map_file = map_file.split('.')[0]
+		
+		if(ic_for_gazebo == None):
+			ic_for_gazebo = robot_goals['goal1']
+		#print(ic_for_gazebo)
+		
 		rospy.init_node('run_jackal_%d' %robot_num)#, log_level=rospy.DEBUG)
-		self.RobotObjects.update({robot_num: mn.Jackal(robot_num, total_robots, list_obs, \
-													   first_goal_for_gazebo=robot_goals['goal1'], \
-													   reactive=reactive_option, map_file=map_file)})
-
+		#parent_obj.RobotObjects.update({robot_num: mn.Jackal(robot_num, total_robots, list_obs, \
+		#											   first_goal_for_gazebo=robot_goals['goal1'], \
+		#											   reactive=reactive_option, map_file=map_file)})
+		J = mn.Jackal(robot_num, total_robots, list_obs, \
+					  first_goal_for_gazebo=ic_for_gazebo, \
+					  reactive=reactive_option, map_file=map_file, pose_data_ptr=pose_data)
+		
 		try:
 			#rospy.spin()
-			self.RobotObjects[robot_num].Run()
+			J.Run()
 		except KeyboardInterrupt:
 			pass
 		except rospy.ROSInterruptException:
@@ -852,7 +900,7 @@ class GUI:
 		finally:
 			timenow     = localtime()
 			print('Ended program at ' + strftime('%H:%M:%S', timenow))
-			self.RobotObjects[robot_num].Shutdown() #hopefully destroy the memory taken by slugs
+			J.Shutdown() #hopefully destroy the memory taken by slugs
 		#'''
 		# option c
 		'''

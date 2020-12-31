@@ -755,7 +755,7 @@ def plot_path(ax, G, paths, MotionPrimitives, robot_i):
 	print('Plotting the shortest path took %.2f[sec]' %(toc-tic))
 
 # generates the specification file for slugs (decentralized) 
-def UpdateGoalsSlugsInputFile(goals, robot_num, filename='map_funnel'):
+def UpdateGoalsSlugsInputFile(goals, robot_num, filename='map_funnel', ext_ic=None):
 	global W_xgrid
 	global W_ygrid
 	
@@ -803,7 +803,10 @@ def UpdateGoalsSlugsInputFile(goals, robot_num, filename='map_funnel'):
 		new_text = new_text + 'R=%d\n' %( map_label_2_bit[g] )
 	new_text = new_text + 'R=%d\n' %( map_label_2_bit[cyc_goals[0]] )
 	new_text = new_text + full_file[i2:i3]
-	new_text = new_text + 'R=%d\n' %( map_label_2_bit[cyc_goals[0]] )
+	if(ext_ic==None):
+		new_text = new_text + 'R=%d\n' %( map_label_2_bit[cyc_goals[0]] )
+	else:
+		new_text = new_text + 'R=%d\n' %( ext_ic )
 	new_text = new_text + full_file[i4:]
 	f.close()
 
@@ -1263,9 +1266,9 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 			#for r in other_robots:
 			if(len(other_robots)>0):
 				for act in range(total_actions):
-					#f.write('R%d_%d\'->!(mp\'=%d)\n' %(r, act, act )) # existence of any robot in funnel close to self robot
-					f.write('B_%d\'->!(mp\'=%d)\n' %(act, act )) # existence of any robot in funnel close to self robot
-					#f.write('B_%d->!(mp\'=%d)\n' %(act, act )) # existence of any robot in funnel close to self robot
+					# GUY - I used the first line before, check to see if first or second line makes more sense
+					#f.write('B_%d\'->!(mp\'=%d)\n' %(act, act )) # existence of any robot in funnel close to self robot
+					f.write('B_%d->!(mp=%d)\n' %(act, act )) # existence of any robot in funnel close to self robot
 			f.write('\n')
 			
 			# this is the robot which the policy is about

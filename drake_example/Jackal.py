@@ -42,7 +42,7 @@ from tf2_geometry_msgs import do_transform_vector3
 
 # class to handle a single robot comm.
 class Jackal:
-	def __init__(self, idx, total_robots, list_obs=[], list_robots=[], first_goal_for_gazebo=None, reactive='F', map_file=None):
+	def __init__(self, idx, total_robots, list_obs=[], list_robots=[], first_goal_for_gazebo=None, reactive='F', map_file=None, pose_data_ptr=None):
 		self.ROBOT_TYPE = 'JACKAL'  # original JACKAL run with 'roslaunch jackal_gazebo jackal_world.launch'
 		#self.ROBOT_TYPE = 'TURTLEBOT'
 		#self.MAP    = 'raymond'
@@ -123,6 +123,8 @@ class Jackal:
 		self.InSynthesisProcedure = False
 		self.resynth_cnt = 0
 		self.realizable_spec = True
+		self.goal_reached_time = -1000.
+		self.pose_data_ptr = pose_data_ptr
 
 		# load the map properties
 		aut = open(map_file, 'r')
@@ -225,6 +227,18 @@ class Jackal:
 
 				set_first_pose = ModelState()
 				set_first_pose.model_name = 'jackal%d' %self.idx
+				if(isinstance(first_goal_for_gazebo, list) == False):
+					# it's a pose_bit
+					lbl = self.map_bit_2_label[first_goal_for_gazebo]
+					orient, xs, ys = [int(s) for s in re.findall(r'-?\d+\.?\d*', lbl)] # extract first ellipse pose
+					xs = self.W_xgrid[xs]
+					ys = self.W_ygrid[ys]
+					rotmat = GetRotmat(orient)
+					if(orient == 3):
+						orient = -1
+					ang = orient*np.pi/2.0
+					first_goal_for_gazebo = [xs, ys, ang]
+					
 				set_first_pose.pose.position.x    = first_goal_for_gazebo[0]
 				set_first_pose.pose.position.y    = first_goal_for_gazebo[1]
 				q = quaternion_from_euler(0.0, 0.0, first_goal_for_gazebo[2])
@@ -430,6 +444,9 @@ class Jackal:
 		# store for other uses
 		if(not reject_measurement):
 			self.pose = np.array([pose.x, pose.y, theta[1]]) # (gazebo->mine axes match )
+			if(self.pose_data_ptr != None):
+				pose_bit = self.GetClosestNode(self.pose)
+				self.pose_data_ptr['jackal%d' %self.idx] = pose_bit
 		else:
 			print(self.colorize('YELLOW','R%d, rejecting measurement from vicon' %self.idx))
 
@@ -555,8 +572,18 @@ class Jackal:
 						else:
 							pass
 
-			# take control action!
-			self.control(self.K, self.xinterp, self.uinterp, do_calc=self.do_calc)
+			time_to_spin = 2.0
+			if(self.msg_num - self.goal_reached_time < time_to_spin*self.MEAS_FS):
+				# spin in place to indicate loading unloading a box
+				temp_spin = [2.*np.pi / time_to_spin, 0.0]
+				t = Twist()
+				t.angular.z = 0. #temp_spin[0]
+				t.linear.x  = 0. #temp_spin[1]
+				self.control_pub.publish(t)
+				#print('supposed to spin')
+			else:
+				# take regular control action!
+				self.control(self.K, self.xinterp, self.uinterp, do_calc=self.do_calc)
 
 			# check if we're in the next ellipse on the same funnel
 			if(self.action != self.STAY_IN_PLACE):
@@ -666,6 +693,7 @@ class Jackal:
 				#advance the next goal
 				if(self.goals[self.goal] == self.curr_state):
 					print(self.colorize('GREEN', 'Passed through a goal!'))
+					self.goal_reached_time = self.msg_num
 					self.goal += 1
 					#reset counter if this is the last one
 					if( self.goal >= len(self.goals) ):
