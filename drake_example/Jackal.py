@@ -123,7 +123,8 @@ class Jackal:
 		self.InSynthesisProcedure = False
 		self.resynth_cnt = 0
 		self.realizable_spec = True
-		self.goal_reached_time = -1000.
+		self.goal_reached_time = -1000
+		self.check_goal_on_loading = True
 		self.pose_data_ptr = pose_data_ptr
 
 		# load the map properties
@@ -217,7 +218,7 @@ class Jackal:
 		# use this break point as a synchronizer between multiple runs
 		# (not working well with the GUI.py)
 		#first_goal_for_gazebo = [0.7, -2.2, 1.57]
-		if(first_goal_for_gazebo == None or SIMULATION == False):
+		if((isinstance(first_goal_for_gazebo, np.ndarray) == False) or SIMULATION == False):
 			print('Press c to start ...')
 			import pdb; pdb.set_trace()
 		else:
@@ -227,6 +228,7 @@ class Jackal:
 
 				set_first_pose = ModelState()
 				set_first_pose.model_name = 'jackal%d' %self.idx
+				'''
 				if(isinstance(first_goal_for_gazebo, list) == False):
 					# it's a pose_bit
 					lbl = self.map_bit_2_label[first_goal_for_gazebo]
@@ -238,7 +240,7 @@ class Jackal:
 						orient = -1
 					ang = orient*np.pi/2.0
 					first_goal_for_gazebo = [xs, ys, ang]
-					
+				'''
 				set_first_pose.pose.position.x    = first_goal_for_gazebo[0]
 				set_first_pose.pose.position.y    = first_goal_for_gazebo[1]
 				q = quaternion_from_euler(0.0, 0.0, first_goal_for_gazebo[2])
@@ -257,6 +259,7 @@ class Jackal:
 		self.logger_state.debug('%d;%s;%d' %(self.curr_state, self.map_bit_2_label[self.curr_state], self.action))
 		#import pdb; pdb.set_trace()
 		# now, get the new next state
+		self.next_state = None
 		if(self.action == self.STAY_IN_PLACE):
 			if(self.list_robots == []):
 				print('oh no, R%d starts with action stay in place' %(self.idx))
@@ -269,6 +272,9 @@ class Jackal:
 				if( val['motion'] == self.action):
 					self.next_state = self.map_label_2_bit[key]
 					break
+		if(self.next_state == None):
+			print('did not get a next state for some reason (curr=%d, mp=%d, next=?)' %(self.curr_state, self.action))
+			self.next_state =  self.curr_state
 		#self.next_state, self.next_action = \
 		#	self.slugs.FindNextStep(self.next_state, self.funnel_sensors)
 		#import pdb; pdb.set_trace()
@@ -358,7 +364,7 @@ class Jackal:
 
 		self.timer = -1E6
 		self.funnel_timer = 0.0
-		self.disable_debug = True #False
+		self.disable_debug =  True #False
 		self.in_debug = False
 		self.r = rospy.Rate(self.Fs)
 
@@ -445,7 +451,8 @@ class Jackal:
 		if(not reject_measurement):
 			self.pose = np.array([pose.x, pose.y, theta[1]]) # (gazebo->mine axes match )
 			if(self.pose_data_ptr != None):
-				pose_bit = self.GetClosestNode(self.pose)
+				#pose_bit = self.GetClosestNode(self.pose)
+				pose_bit = self.pose.copy()
 				self.pose_data_ptr['jackal%d' %self.idx] = pose_bit
 		else:
 			print(self.colorize('YELLOW','R%d, rejecting measurement from vicon' %self.idx))
@@ -580,7 +587,7 @@ class Jackal:
 				t.angular.z = 0. #temp_spin[0]
 				t.linear.x  = 0. #temp_spin[1]
 				self.control_pub.publish(t)
-				#print('supposed to spin')
+				#print('supposed to spin: %d' %(self.msg_num - self.goal_reached_time))
 			else:
 				# take regular control action!
 				self.control(self.K, self.xinterp, self.uinterp, do_calc=self.do_calc)
@@ -685,13 +692,24 @@ class Jackal:
 			#			print(self.colorize('YELLOW', 'R%d is still getting stay in place (but we\'re not there yet) ...' %self.idx) )
 			
 			#elif (self.CheckInNextFunnel(self.map_bit_2_label[self.next_state], self.next_action) == True):
+			elif(self.check_goal_on_loading == True):
+				self.check_goal_on_loading = False
+				# in case are in the beginning and we start on a goal
+				if(self.goals[self.goal] == self.curr_state): 
+					print(self.colorize('GREEN', 'Started in a goal!'))
+					self.goal_reached_time = self.msg_num
+				self.goal += 1 # even if it is not the goal, it means that we start from the second goal (SYS_LIVENESS)
+				#reset counter if this is the last one
+				if( self.goal >= len(self.goals) ):
+					self.goal = 0
 			# theoretically, it should've been the next_action so that we choose the right mp, but it doesn't really matter
 			# since all the first ellipses of all the mps are basically similar and surround the cell
 			elif (self.CheckInNextFunnel(self.map_bit_2_label[self.next_state], 0) == True):
-				#self.in_debug = True
-				#import pdb; pdb.set_trace()
-				#advance the next goal
-				if(self.goals[self.goal] == self.curr_state):
+				#print('hey yo!')
+				#if(self.next_state==551):
+				#	import pdb; pdb.set_trace()
+				#advance the next goal  #curr_state):
+				if(self.goals[self.goal] == self.next_state): 
 					print(self.colorize('GREEN', 'Passed through a goal!'))
 					self.goal_reached_time = self.msg_num
 					self.goal += 1
@@ -1002,7 +1020,7 @@ class Jackal:
 			#import pdb; pdb.set_trace()
 			CreateSlugsInputFile(self.G, [goals], self.mps, no_enter, self.total_robots, \
 						robot_idx=self.idx, filename=self.MAP, ext_xgrid=self.W_xgrid, ext_ygrid=self.W_ygrid, \
-						ext_pix2m=1.0, ext_ic=current_pose, map_label_2_bit=self.map_label_2_bit, \
+						ext_pix2m=1.0, ext_ic=current_pose, ext_map_label_2_bit=self.map_label_2_bit, \
 						pre_blocked_funnels=funnel_sensors) 
 			
 			
@@ -1397,7 +1415,7 @@ if __name__ == '__main__':
 	if(args.x0=='' or args.y0=='' or args.teta0==''):
 		pos0 = None
 	else:
-		pos0 = [float(args.x0), float(args.y0), float(args.teta0)]
+		pos0 = np.array([float(args.x0), float(args.y0), float(args.teta0)])
 
 	# connect to the relevant master (just because I couldn't make the slaves to connect and run :( )
 	if(args.sim == 1):

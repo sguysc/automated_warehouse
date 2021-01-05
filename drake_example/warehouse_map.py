@@ -152,7 +152,7 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 	
 	total_count = 0
 	map_label_2_pose = {}
-	with open(glob_p.MAP_KIND + '.label2pose', 'w') as dbfile:
+	with open(map_kind + '.label2pose', 'w') as dbfile:
 		G = nx.DiGraph(name='ConnectivityGraph')
 		for orient in range(4): #corresponds to (E, N, W, S)
 			print('Computing transition map for orientation (%d/4):' %(orient+1))
@@ -217,6 +217,10 @@ def PopulateMapWithMP(MotionPrimitives, workspace, obs, no_enter, one_ways, map_
 	print(nx.info(G))
 	# save time for next time
 	SaveGraphToFile(G, map_kind)
+	# this is because when creating label2bit, there's a difference in the order
+	# it loads from the file vs when the object is in memory and it makes problems
+	# when running concurrent executions
+	G = LoadGraphFromFile(map_kind)
 	#import pdb; pdb.set_trace()
 	toc = timer()
 	print('Motion primitives on map took %.2f[sec]' %(toc-tic))
@@ -405,7 +409,7 @@ def IsOneWayCompliant(x, y, orient, toRot, toLoc, one_ways, mp_backward):
 	return True
 
 # this will be loading coordinates of a map from a file in the future
-def ReplicateMap(map_kind = 'none'):
+def ReplicateMap(map_kind = 'none', loaded_spec=None):
 	global W_Height
 	global W_Width
 	global ft2m
@@ -414,8 +418,12 @@ def ReplicateMap(map_kind = 'none'):
 	tic = timer()
 	
 	try:
-		with open(map_kind + '.specification', 'r') as spec_file:
-			spec = json.load(spec_file)
+		if(loaded_spec == None):
+			with open(map_kind + '.specification', 'r') as spec_file:
+				spec = json.load(spec_file)
+		else:
+			# taking it only from memory
+			spec = loaded_spec
 	except:
 		print('Specification %s file has syntax error.' %(map_kind))
 		raise
@@ -459,11 +467,14 @@ def ReplicateMap(map_kind = 'none'):
 	
 	return workspace, obs, no_enter, one_ways
 
-def GetGoals(map_kind = 'none'):
+def GetGoals(map_kind = 'none', loaded_spec=None):
 	global pix2m
 	
-	with open(map_kind + '.specification', 'r') as spec_file:
-		spec = json.load(spec_file)
+	if(loaded_spec == None):
+		with open(map_kind + '.specification', 'r') as spec_file:
+			spec = json.load(spec_file)
+	else:
+		spec = loaded_spec
 	
 	all_goals = []
 	num_robots = spec['active_robots']
@@ -921,7 +932,7 @@ def UpdateRestrictionSlugsInputFile(initial_pose, blocked_funnels, goals, robot_
 
 # generates the specification file for slugs (decentralized) 
 def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, filename='map_funnel', \
-						 ext_xgrid=[None], ext_ygrid=[None], ext_pix2m=None, ext_ic=None, map_label_2_bit={}, \
+						 ext_xgrid=[None], ext_ygrid=[None], ext_pix2m=None, ext_ic=None, ext_map_label_2_bit={}, \
 						 pre_blocked_funnels=[]):
 	total_actions    = len(MP) 
 	
@@ -959,6 +970,7 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 	print('Creating the structured slugs file ...')
 	
 	#robots_num = len(goals)
+	all_posible_robots = range(robots_num)
 	if (robot_idx == None):
 		robot_vec = range(robots_num)
 		reuse_spec = True
@@ -966,7 +978,7 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 		robot_vec = [robot_idx]
 		reuse_spec = False
 		
-	for i, r in enumerate(robot_vec):
+	for i, r in enumerate(all_posible_robots):
 		# this is so gross but it is to support cases where i don't know all the goals of other robots, 
 		# like when running on a single robot in semi-reactive way
 		goals_r = np.array(goals[i])
@@ -984,8 +996,9 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 			finish_label['r%d' %r].append(GetNodeLabel(finish,ext_xgrid=W_xgrid, ext_ygrid=W_ygrid,ext_pix2m=pix2m))
 			#print('Then go to: %s' %(finish_label[-1]))
 	
-	if(len(map_label_2_bit)==0):
+	if(len(ext_map_label_2_bit)==0):
 		#map_label_2_bit = {}
+		map_label_2_bit = {}
 		node_count = 0
 		ext_map_l2b = False
 		for node in G:
@@ -1002,7 +1015,8 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 			#	pass
 	else:
 		# use the same structure you currently have
-		node_count = len(map_label_2_bit)
+		node_count = len(ext_map_label_2_bit)
+		map_label_2_bit = ext_map_label_2_bit.copy()
 		ext_map_l2b = True
 		
 	# the reverse dictionary is useful
@@ -1037,7 +1051,8 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 			# structured slugs
 			f.write('[INPUT]\n') 
 			#import pdb; pdb.set_trace()
-			other_robots = np.setdiff1d(robot_vec, np.array([self_r]) )
+			#other_robots = np.setdiff1d(robot_vec, np.array([self_r]) )
+			other_robots = np.setdiff1d(all_posible_robots, np.array([self_r]) )
 			
 			f.write('R:0...%d\n' %( node_count-1 ) ) # existence of self robot in funnel/region
 			#for r in other_robots:
@@ -1056,6 +1071,7 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 			f.write('[SYS_LIVENESS]\n')
 			# all the points we want to reach (goals)
 			cyc_goals = start_label['r%d' %self_r]
+			#import pdb; pdb.set_trace()
 			for g in cyc_goals[1:]:
 				f.write('R=%d\n' %( map_label_2_bit[g] ))
 			f.write('R=%d\n' %( map_label_2_bit[cyc_goals[0]] ))
@@ -1237,9 +1253,16 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 			f.write('\n')
 			
 			f.write('[ENV_INIT]\n')
-			if(ext_ic == None):
-				f.write('R=%d\n' %( map_label_2_bit[start_label['r%d' %self_r][0]] )) 
+			if(isinstance(ext_ic, np.ndarray) == False):
+				if(ext_ic == None):
+					f.write('R=%d\n' %( map_label_2_bit[start_label['r%d' %self_r][0]] )) 
+				else:
+					f.write('R=%d\n' %( ext_ic )) 
 			else:
+				# if it is a pose, convert to node id
+				the_pose = ext_ic.copy()
+				ext_ic = map_label_2_bit[GetNodeLabel(ext_ic)]
+				print('converted pose=[%.2f, %.2f] to new node=%d' %(the_pose[0], the_pose[1], ext_ic))
 				f.write('R=%d\n' %( ext_ic )) 
 			# need to change this, either to have no specific start point, or, start at the current location,
 			# or have some mechanism to get from current location to start position
@@ -1303,7 +1326,7 @@ def CreateSlugsInputFile(G, goals, MP, no_enter, robots_num, robot_idx=None, fil
 	toc = timer()
 	print('Creating structuredslugs & converting to slugsin file took %.2f[sec]' %(toc-tic))
 
-	return map_label_2_bit
+	return map_label_2_bit.copy()
 
 
 # convert to slugsin.
@@ -1367,7 +1390,7 @@ def CheckRealizeability(robots_num, filename='map_funnel', robot_num=-1):
 		print('Robot %d done ...' %(r))
 						
 	toc = timer()
-	print('Checking realizeability for the %d robots, via slugs took %.2f[sec]' %(robots_num, toc-tic))
+	print('Checking realizeability for the %d robot, via slugs took %.2f[sec]' %(len(check_vector), toc-tic))
 	
 	if(realizable):
 		print('All specifications are realizeable.\nHURRAY!')

@@ -40,9 +40,9 @@
     <arg name="use_move_base" value="true"/>
     <arg name="use_global_tf" value="false"/>
     <arg name="use_global_ekf" value="true"/>
-    <arg name="x"             value="-0.600000"/>
-    <arg name="y"             value="0.350000"/>
-    <arg name="yaw"           value="-1.570000"/>
+    <arg name="x"             value="1.100000"/>
+    <arg name="y"             value="2.300000"/>
+    <arg name="yaw"           value="0.000000"/>
   </include>
   
   <!-- View in RVIZ. -->

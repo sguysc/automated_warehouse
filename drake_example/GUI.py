@@ -117,6 +117,7 @@ class GUI:
 		self.has_fixed_step_changed = None
 		self.has_task_step_changed = None
 		self.need_to_perform_map_again = None
+		self.surpress_resynth_msg = False
 		self.add_new_obs = False
 		self.add_new_nez = False
 		self.add_new_ow = False
@@ -126,7 +127,7 @@ class GUI:
 		self.RobotObjects = {}
 		self.NewIC = {k:None for k in range(20)} # whether to track the new ic in case it moved
 		self.manager = Manager()
-		self.pose_data = self.manager.dict({'jackal0': 0, 'jackal1': 0, 'jackal2': 0})
+		self.pose_data = self.manager.dict({'jackal%d'%k:np.empty(3) for k in range(20)})
 
 		# the map canvas
 		self.canvas_height=600
@@ -253,7 +254,8 @@ class GUI:
 	def check_changed_fixed_specification(self, event):
 		try:
 			if(self.has_fixed_step_changed == False and (self.has_fixed_step_changed != None)):
-				print('fixed part changed, going to synthesize from beginning')
+				if(self.surpress_resynth_msg == True):
+					print('fixed part changed, going to synthesize from beginning')
 				self.main.title('Automated Warehouse in a Day - GUI (%s*)' %self.filename.split('/')[-1])
 		except:
 			pass
@@ -267,20 +269,27 @@ class GUI:
 	def get_rclicked_coord(self, source, event):
 		if(not self.file_loaded):
 			return
-		
+		only_task_changed = None
 		deleted_something = False
 
 		if('obs' in source):
 			self.spec['obstacles'].pop(source)
 			deleted_something = True
+			only_task_changed = False
 		if('ne' in source):
 			self.spec['no_entrance'].pop(source)
 			deleted_something = True
+			only_task_changed = False
 		if('R' in source):
 			r, g = [int(s) for s in re.findall(r'\d+', source)]
 			self.spec['robot%d'%r].pop('goal%d'%(g+1))
 			self.spec['robot%d'%r].update({'goals': self.spec['robot%d'%r]['goals']-1})
 			deleted_something = True
+			if(only_task_changed == None):
+				only_task_changed = False
+		
+		if(only_task_changed == True):
+			self.surpress_resynth_msg = True
 			
 		if(deleted_something):
 			print('deleting object %s' %source)
@@ -289,6 +298,12 @@ class GUI:
 			self.LoadTask()
 			self.DrawMap()
 			self.PopulateTask()
+			if(only_task_changed == True):
+				# otherwise, it is raised because we do re-populate the edit areas
+				# so it will redo the maps again
+				self.has_fixed_step_changed = False
+				self.need_to_perform_map_again = False
+				self.surpress_resynth_msg = False
 	
 	# adding an object to the map (and spec)
 	def get_lclicked_coord(self, event):
@@ -298,6 +313,7 @@ class GUI:
 			self.coord1 = None 
 			self.coord2 = None
 			return
+		only_task_changed = None
 		
 		if(self.coord1 == None):
 			self.coord1 = [event.y*self.pix2m+self.workspace.bounds[0], event.x*self.pix2m+self.workspace.bounds[1]]
@@ -305,6 +321,7 @@ class GUI:
 			self.coord2 = [event.y*self.pix2m+self.workspace.bounds[0], event.x*self.pix2m+self.workspace.bounds[1]]
 			#import pdb; pdb.set_trace()
 			if(self.add_new_obs):
+				only_task_changed = False
 				try:
 					i = 1
 					# find the last one, and add a new obstacle
@@ -314,6 +331,7 @@ class GUI:
 				except:
 					self.spec['obstacles'].update({'obs%d' %i : self.coord1 + self.coord2})
 			if(self.add_new_nez):
+				only_task_changed = False
 				try:
 					i = 1
 					while True:
@@ -345,8 +363,12 @@ class GUI:
 				except:
 					self.spec['robot%d' %robot_num].update({'goal%d' %i : [self.coord1[0],self.coord1[1], direction]})		
 					self.spec['robot%d' %robot_num].update({'goals': i})		
+				if(only_task_changed == None):
+					only_task_changed = True
+				#else it means that there are several changes and we do need to redo the map
 			
 			if(self.add_new_ow):
+				only_task_changed = False
 				# decide the direction of the arrow first
 				dx = self.coord2[0] - self.coord1[0]
 				dy = self.coord2[1] - self.coord1[1]
@@ -370,10 +392,21 @@ class GUI:
 						i += 1
 				except:
 					self.spec['one_way'].update({'%s_%d' %(direction, i) : self.coord1 + self.coord2})
+			
+			if(only_task_changed == True):
+				self.surpress_resynth_msg = True
+			
 			self.LoadMap(reload=False) #because we did not save the spec file yet, it's just in self.spec
 			self.LoadTask()
 			self.DrawMap()
 			self.PopulateTask()
+			
+			if(only_task_changed == True):
+				# otherwise, it is raised because we do re-populate the edit areas
+				# so it will redo the maps again
+				self.has_fixed_step_changed = False
+				self.need_to_perform_map_again = False
+				self.surpress_resynth_msg = False
 
 			self.add_new_obs = False 
 			self.add_new_nez = False
@@ -453,7 +486,10 @@ class GUI:
 	def Synthesize(self):
 		if(not self.file_loaded):
 			return
-
+		robot_num = int(self.robot_num.get())
+		# get ready for the new execution
+		self.NewIC[robot_num] = None
+		
 		self.SynthesisProcedure()
 	
 	# stop running the thread of the running robot
@@ -499,14 +535,25 @@ class GUI:
 		except:
 			pass
 		finally:
-			if(self.NewIC[robot_num] != None):
+			if(isinstance(self.NewIC[robot_num], np.ndarray) == True):
+				# meaning, it is not None, robot moved
 				if tkMessageBox.askokcancel("Robot %d moved" %robot_num, \
 											"Do you want to re-synthesize to account for new robot\'s pose?"):
-					print('cool, re-synthesizing with new [ENV_INIT]...')
-					self.SynthesisProcedure(ext_ic=self.NewIC[robot_num])
+					print('cool, re-synthesizing with new [ENV_INIT] R%d=[%.2f, %.2f]...' %(robot_num, \
+														self.NewIC[robot_num][0], self.NewIC[robot_num][1]))
+					if(self.has_task_step_changed or self.has_fixed_step_changed):
+						self.SynthesisProcedure(ext_ic=self.NewIC[robot_num], skip_check_real=False)
+					else:
+						# then only the current IC changed, so it's less likely to not be realizeable (assuming the
+						# robot hasn't been abducted).
+						self.SynthesisProcedure(ext_ic=self.NewIC[robot_num], skip_check_real=True)
 				else:
 					print('ok, make sure the robot is going to be in its required starting place, especially in the lab')
 					self.NewIC[robot_num] = None
+			else:
+				# if the user did some change and ran this directly, re-synthesize
+				if(self.need_to_perform_map_again == True or self.has_task_step_changed == True):
+					self.SynthesisProcedure()
 			
 			print('running robot #%d' %(robot_num))
 			#self.thread.update({robot_num: threading.Thread(target=run_main_program, \
@@ -533,7 +580,7 @@ class GUI:
 		#
 				
 		dx = -self.workspace.bounds[0]+0.0
-		dy = -self.workspace.bounds[1]+0.0	
+		dy = -self.workspace.bounds[1]+0.0
 		dpos = np.array([dx, dy])
 		
 		xycoords = self.workspace.exterior.coords[:]+dpos
@@ -723,7 +770,7 @@ class GUI:
 		self.pix2m  = np.max([self.W_Width/self.canvas_width, self.W_Height/self.canvas_height])*1.0
 		
 	# synthesis pipeline
-	def SynthesisProcedure(self, ext_ic=None):
+	def SynthesisProcedure(self, ext_ic=None, skip_check_real=False):
 		
 		self.synth_button.configure(text = 'please wait ...')
 		self.main.update()
@@ -746,14 +793,14 @@ class GUI:
 		MP = wm.LoadMP(fName='MPLibrary.lib')
 		wm.MotionPrimitivesToFile(map_kind, MP) # creates the file later used for loading in matlab
 		# we load it again to get it from the file, in case user did not hit save
-		workspace, obs, no_enter, one_ways = wm.ReplicateMap(map_kind=map_kind) #
-		goals, robots_num = wm.GetGoals(map_kind=map_kind)
+		workspace, obs, no_enter, one_ways = wm.ReplicateMap(map_kind=map_kind, loaded_spec=self.spec) #
+		goals, robots_num = wm.GetGoals(map_kind=map_kind, loaded_spec=self.spec)
 		# save it to file
 		wm.MapToFile(map_kind.lower(), workspace, obs, goals, no_enter, one_ways, 1.0) # for loading in matlab
 
 		DiGraph, ax = wm.PopulateMapWithMP(MP, workspace, obs, no_enter, one_ways, map_kind, \
 										   cell_h=cell, cell_w=cell, force=force, plot=False)
-
+		#import pdb; pdb.set_trace()
 		print('Searching for naive paths (disregarding no-entry zones) using graph search ...')
 		for i in range(robots_num):
 			# get each individual robot's path
@@ -783,17 +830,18 @@ class GUI:
 		#import pdb; pdb.set_trace()
 		if(self.has_fixed_step_changed): # or 
 			if(reactive_option == 1):
-				map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, goals, MP, no_enter, robots_num, filename=map_kind) #'map_funnel')
+				print('in the right spot, need_to_perform_map_again=%d' %self.need_to_perform_map_again)
+				map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, goals, MP, no_enter, robots_num, \
+															   robot_idx=robot_num, filename=map_kind, ext_ic=ext_ic)
 			elif(reactive_option == 2):
 				map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, [goals[robot_num]], MP, no_enter, 1, \
 														  robot_idx=robot_num, filename=map_kind, ext_ic=ext_ic) 
 				#map_label_2_bit = wm.CreateSlugsInputFile(DiGraph, goals, MP, no_enter, 1, \
-														  
 			# unless there will be a change again, if we synthesize a spec for robot 1, no need to do it
 			# again if user asks for robot 2
 			self.need_to_perform_map_again = False
 		else:
-			map_label_2_bit = wm.UpdateGoalsSlugsInputFile(goals, robot_num, filename=map_kind)
+			map_label_2_bit = wm.UpdateGoalsSlugsInputFile(goals, robot_num, filename=map_kind, ext_ic=ext_ic)
 			
 		#G, goals, MP, no_enter, robots_num, robot_idx=None, filename='map_funnel', \
 		#				 ext_xgrid=[None], ext_ygrid=[None], ext_pix2m=None, ext_ic=None, map_label_2_bit={}
@@ -801,13 +849,14 @@ class GUI:
 		# the reverse dictionary is useful
 		#map_bit_2_label = dict((v, k) for k, v in map_label_2_bit.items())
 
-		if(self.has_task_step_changed): 
-			#if(reactive_option == 1):
-			wm.CheckRealizeability(robots_num, filename=map_kind, robot_num=robot_num)
-			#if(reactive_option == 2):
-			#	wm.CheckRealizeability(1, filename=map_kind, robot_num=robot_num)
-		else:
-			wm.CheckRealizeability(robots_num, filename=map_kind, robot_num=robot_num)
+		if(skip_check_real == False):
+			if(self.has_task_step_changed): 
+				#if(reactive_option == 1):
+				wm.CheckRealizeability(robots_num, filename=map_kind, robot_num=robot_num)
+				#if(reactive_option == 2):
+				#	wm.CheckRealizeability(1, filename=map_kind, robot_num=robot_num)
+			else:
+				wm.CheckRealizeability(robots_num, filename=map_kind, robot_num=robot_num)
 		
 		map_name = self.filename.split('.')[0]
 		dbfile = open(map_name + '.label2bit', 'rb')
@@ -875,9 +924,14 @@ class GUI:
 		map_file = self.filename.split('/')[-1]
 		map_file = map_file.split('.')[0]
 		
-		if(ic_for_gazebo == None):
-			ic_for_gazebo = robot_goals['goal1']
-		#print(ic_for_gazebo)
+		if(isinstance(ic_for_gazebo, np.ndarray) == False):
+			if(ic_for_gazebo == None):
+				ic_for_gazebo = np.array(robot_goals['goal1'])
+		
+		if(isinstance(ic_for_gazebo, np.ndarray) == True):
+			print('Using new location [%.2f, %.2f] as starting point' %(ic_for_gazebo[0], ic_for_gazebo[1]))
+		else:
+			print('Using new location %d as starting point' %ic_for_gazebo)
 		
 		rospy.init_node('run_jackal_%d' %robot_num)#, log_level=rospy.DEBUG)
 		#parent_obj.RobotObjects.update({robot_num: mn.Jackal(robot_num, total_robots, list_obs, \
